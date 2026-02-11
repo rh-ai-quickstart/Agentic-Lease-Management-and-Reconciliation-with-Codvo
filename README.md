@@ -1,4 +1,4 @@
-# Agentic Lease mgmt. & Reconciliation.
+# Agentic Lease Management & Reconciliation.
 
 <!-- CONTRIBUTOR TODO: update title ^^
 
