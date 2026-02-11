@@ -1,4 +1,4 @@
-# [INSERT quickstart title here]
+# Agentic Lease mgmt. & Reconciliation.
 
 <!-- CONTRIBUTOR TODO: update title ^^
 
@@ -13,7 +13,6 @@ TITLE will be extracted for publication.
 -- > 
 
 
-
 <!-- CONTRIBUTOR TODO: short description 
 
 *ADD a SHORT DESCRIPTION of your use case between H1 title and next section*
@@ -25,7 +24,7 @@ SHORT DESCRIPTION requirements:
 SHORT DESCRIPTION will be extracted for publication.
 
 --> 
-
+Driving autonomous lease operations through verified, audit-ready data for Oil & Gas and Industrial leaders
 
 ## Table of contents
 
@@ -37,15 +36,18 @@ REMEMBER: to remove this section if you don't use a TOC.
 
 ## Detailed description
 
-<!-- CONTRIBUTOR TODO: add detailed description.
+What problems are solving? 
+* Unstructured lease documents:
 
-This section is required. Describe the quickstart use case in more detail. 
+Manual extraction of key terms from scanned leases creates operational bottlenecks that delay revenue-generating activities like Division Order management and acquisition cycles.
 
-This is not a technical description. This is about the workload. 
+* Inconsistent System of Records:
+  
+What’s in the lease often differs from what’s in the LMS/ERP/MRO – causing inconsistency in record keeping, royalty mis-payments, missed obligations, and rework.
 
-Technical description comes later.
-
--->
+* Weak auditability & reconciliation:
+  
+Proving “why we paid what we paid” takes hours; evidence is scattered and hard to reconcile manually.
 
 
 ### See it in action 
