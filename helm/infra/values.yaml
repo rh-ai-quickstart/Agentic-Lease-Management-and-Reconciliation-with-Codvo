@@ -1,0 +1,89 @@
+# NeIO LeasingOps — Infrastructure Chart Values
+#
+# This chart deploys the shared infrastructure required by the NeIO LeasingOps app.
+# For RSDP deployments, these components will be pre-installed by the RSDP platform.
+# For manual installs, run: make infra
+#
+# RSDP NOTE: If RSDP pre-provisions these services, disable the components below and
+# point the app chart at the pre-existing endpoints via values-rsdp.yaml.
+
+# =============================================================================
+# POSTGRESQL (with pgvector extension)
+# =============================================================================
+postgresql:
+  enabled: true
+  auth:
+    username: leasingops
+    # Password MUST be set at deploy time — never hard-code here.
+    # Pass via: --set postgresql.auth.password=<value>
+    password: ""
+    database: leasingops
+  primary:
+    initdb:
+      scripts:
+        enable-pgvector.sql: |
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+  metrics:
+    enabled: false
+
+# =============================================================================
+# REDIS (cache + task queue)
+# =============================================================================
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+    password: ""
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "250m"
+
+# =============================================================================
+# MINIO (object storage for documents)
+# =============================================================================
+minio:
+  enabled: false  # Disable for RSDP; RSDP clusters typically provide S3-compatible storage.
+  auth:
+    rootUser: minio-admin
+    rootPassword: ""
+  defaultBuckets: "leasingops-documents"
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+# =============================================================================
+# NAMESPACE (created by infra chart so app chart can assume it exists)
+# =============================================================================
+namespace:
+  create: true
+  name: neio-leasingops
+  labels:
+    app.kubernetes.io/managed-by: helm
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

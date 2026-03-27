@@ -1,0 +1,241 @@
+# NeIO OpenShift AI Integration Configuration
+# Default values for neio-openshift-ai Helm chart
+
+# Global settings
+global:
+  namespace: neio-ai
+  imageRegistry: registry.redhat.io
+  imagePullSecrets:
+    - name: redhat-registry-secret
+
+# llm-d (LLM Daemon) Controller Configuration
+llmd:
+  enabled: true
+  name: llmd-controller
+  replicas: 1
+
+  image:
+    repository: rhoai/llm-d
+    tag: "1.0"
+    pullPolicy: IfNotPresent
+
+  # Model routing configuration
+  modelRouting:
+    enabled: true
+    strategy: round-robin  # round-robin, least-connections, weighted
+    healthCheckInterval: 30s
+    timeout: 60s
+
+  # Supported models for routing
+  models:
+    - name: llama-3-8b-instruct
+      endpoint: http://vllm-llama-3-8b:8000
+      weight: 50
+    - name: mistral-7b-instruct
+      endpoint: http://vllm-mistral-7b:8000
+      weight: 50
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+
+  # Pod configuration
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# vLLM Inference Server Configuration
+vllm:
+  enabled: true
+
+  # Primary model configuration
+  model:
+    name: llama-3-8b-instruct
+    path: meta-llama/Meta-Llama-3-8B-Instruct
+    revision: main
+
+  # GPU and parallelism settings
+  tensorParallelism: 1
+  pipelineParallelism: 1
+  maxModelLen: 8192
+  gpuMemoryUtilization: 0.9
+
+  # Serving configuration
+  serving:
+    port: 8000
+    replicas: 1
+    maxConcurrentRequests: 100
+
+  # GPU resources
+  resources:
+    requests:
+      cpu: 4
+      memory: 16Gi
+      nvidia.com/gpu: 1
+    limits:
+      cpu: 8
+      memory: 32Gi
+      nvidia.com/gpu: 1
+
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+
+  # Pod configuration
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  affinity: {}
+
+# Llama Stack Configuration
+llamaStack:
+  enabled: true
+  name: llama-stack
+
+  image:
+    repository: rhoai/llama-stack
+    tag: "0.1"
+    pullPolicy: IfNotPresent
+
+  # Guardrails configuration
+  guardrails:
+    enabled: true
+    inputFiltering: true
+    outputFiltering: true
+
+    # Content safety settings
+    contentSafety:
+      enabled: true
+      toxicityThreshold: 0.7
+      biasDetection: true
+      piiDetection: true
+
+    # Topic restrictions for LeasingOps domain
+    topicRestrictions:
+      enabled: true
+      allowedTopics:
+        - leasing
+        - real-estate
+        - property-management
+        - tenant-relations
+        - lease-agreements
+        - maintenance
+        - financials
+      blockedTopics:
+        - violence
+        - illegal-activities
+        - discrimination
+
+    # Rate limiting
+    rateLimiting:
+      enabled: true
+      requestsPerMinute: 60
+      tokensPerMinute: 100000
+
+  # Agent configuration
+  agents:
+    enabled: true
+    maxConcurrentAgents: 10
+    defaultTimeout: 300s
+
+  resources:
+    requests:
+      cpu: 1
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Model Serving Configuration
+modelServing:
+  # Serving runtime selection
+  servingRuntime: vllm  # vllm, tgis, caikit
+
+  # OpenShift AI Model Serving settings
+  modelMeshServing:
+    enabled: false
+
+  kServeServing:
+    enabled: true
+
+  # Model catalog integration
+  modelCatalog:
+    enabled: true
+    refreshInterval: 1h
+
+  # Inference settings
+  inference:
+    timeout: 120s
+    maxBatchSize: 32
+    batchTimeout: 100ms
+
+  # Resources for model serving pods
+  resources:
+    requests:
+      cpu: 2
+      memory: 8Gi
+    limits:
+      cpu: 8
+      memory: 32Gi
+
+  # Storage configuration
+  storage:
+    enabled: true
+    storageClass: gp3-csi
+    size: 100Gi
+
+  # Model caching
+  caching:
+    enabled: true
+    cacheSize: 50Gi
+
+# Monitoring and observability
+monitoring:
+  enabled: true
+
+  prometheus:
+    enabled: true
+    scrapeInterval: 30s
+
+  grafana:
+    enabled: true
+    dashboards:
+      - llm-performance
+      - gpu-utilization
+      - request-latency
+
+# Security settings
+security:
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+
+# Service mesh integration
+serviceMesh:
+  enabled: false
+  istio:
+    enabled: false
+    mtls: true

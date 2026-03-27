@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pgvector
+description: PostgreSQL with pgvector extension for vector similarity search
+type: application
+version: 0.1.0
+appVersion: "16-3.6"
+keywords:
+  - postgresql
+  - pgvector
+  - vector-database
+  - embeddings
+home: https://github.com/pgvector/pgvector
+sources:
+  - https://github.com/pgvector/pgvector
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai

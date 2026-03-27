@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pgvector.fullname" . }}-init
+  labels:
+    {{- include "pgvector.labels" . | nindent 4 }}
+data:
+  01-init-pgvector.sql: |
+    -- Enable pgvector extension
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    -- Enable additional useful extensions
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE EXTENSION IF NOT EXISTS btree_gin;
+
+    -- Set optimal settings for vector operations
+    ALTER SYSTEM SET maintenance_work_mem = '256MB';
+    ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
+
+    -- Create index function for vector columns
+    -- Usage: SELECT create_vector_index('table_name', 'column_name', 1536);
+    CREATE OR REPLACE FUNCTION create_vector_index(
+      table_name TEXT,
+      column_name TEXT,
+      dimensions INT DEFAULT 1536
+    ) RETURNS VOID AS $$
+    DECLARE
+      index_name TEXT;
+    BEGIN
+      index_name := table_name || '_' || column_name || '_idx';
+      EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS %I ON %I USING ivfflat (%I vector_cosine_ops) WITH (lists = 100)',
+        index_name, table_name, column_name
+      );
+    END;
+    $$ LANGUAGE plpgsql;

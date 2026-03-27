@@ -1,0 +1,379 @@
+# Model Configuration and Catalog Integration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-serving-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: model-serving-config
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: model-config
+    app.kubernetes.io/part-of: neio-openshift-ai
+data:
+  # Model serving configuration
+  serving-config.yaml: |
+    # NeIO LeasingOps Model Serving Configuration
+    serving:
+      runtime: {{ .Values.modelServing.servingRuntime }}
+
+      # Inference settings
+      inference:
+        timeout: {{ .Values.modelServing.inference.timeout }}
+        maxBatchSize: {{ .Values.modelServing.inference.maxBatchSize }}
+        batchTimeout: {{ .Values.modelServing.inference.batchTimeout }}
+
+      # KServe serving mode
+      kserve:
+        enabled: {{ .Values.modelServing.kServeServing.enabled }}
+        deploymentMode: RawDeployment
+
+      # ModelMesh serving mode
+      modelmesh:
+        enabled: {{ .Values.modelServing.modelMeshServing.enabled }}
+
+      # Caching configuration
+      caching:
+        enabled: {{ .Values.modelServing.caching.enabled }}
+        size: {{ .Values.modelServing.caching.cacheSize }}
+
+    # Resource allocation
+    resources:
+      requests:
+        cpu: {{ .Values.modelServing.resources.requests.cpu }}
+        memory: {{ .Values.modelServing.resources.requests.memory }}
+      limits:
+        cpu: {{ .Values.modelServing.resources.limits.cpu }}
+        memory: {{ .Values.modelServing.resources.limits.memory }}
+
+  # Model catalog configuration
+  model-catalog.yaml: |
+    # Model Catalog for NeIO LeasingOps
+    catalog:
+      enabled: {{ .Values.modelServing.modelCatalog.enabled }}
+      refreshInterval: {{ .Values.modelServing.modelCatalog.refreshInterval }}
+
+    # Available models for LeasingOps use cases
+    models:
+      - name: llama-3-8b-instruct
+        displayName: "Llama 3 8B Instruct"
+        description: "Meta's Llama 3 8B instruction-tuned model for general LeasingOps tasks"
+        provider: meta
+        modelId: meta-llama/Meta-Llama-3-8B-Instruct
+        type: text-generation
+        capabilities:
+          - chat
+          - completion
+          - summarization
+        contextLength: 8192
+        recommended: true
+        useCases:
+          - lease-analysis
+          - document-qa
+          - tenant-communication
+
+      - name: mistral-7b-instruct
+        displayName: "Mistral 7B Instruct"
+        description: "Mistral AI's 7B instruction-tuned model for efficient inference"
+        provider: mistral
+        modelId: mistralai/Mistral-7B-Instruct-v0.2
+        type: text-generation
+        capabilities:
+          - chat
+          - completion
+        contextLength: 32768
+        recommended: false
+        useCases:
+          - quick-queries
+          - classification
+
+      - name: bge-large-en
+        displayName: "BGE Large English"
+        description: "BAAI's BGE embedding model for document retrieval"
+        provider: baai
+        modelId: BAAI/bge-large-en-v1.5
+        type: embedding
+        capabilities:
+          - embedding
+        dimensions: 1024
+        recommended: true
+        useCases:
+          - document-search
+          - semantic-similarity
+
+      - name: rerank-v2
+        displayName: "Cohere Rerank v2"
+        description: "Reranking model for improved search relevance"
+        provider: cohere
+        modelId: rerank-english-v2.0
+        type: reranking
+        capabilities:
+          - reranking
+        recommended: true
+        useCases:
+          - search-reranking
+
+  # LeasingOps specific model parameters
+  leasingops-params.yaml: |
+    # LeasingOps Domain-Specific Configuration
+    domain:
+      name: leasingops
+      description: "Real estate leasing and property management"
+
+    # Prompt templates for LeasingOps tasks
+    prompts:
+      leaseAnalysis:
+        systemPrompt: |
+          You are an expert legal assistant specializing in commercial and residential lease agreements.
+          Analyze lease documents carefully and provide accurate, professional responses.
+          Always cite specific clauses when referencing lease terms.
+        temperature: 0.3
+        maxTokens: 2048
+
+      tenantCommunication:
+        systemPrompt: |
+          You are a professional property management assistant.
+          Communicate clearly and professionally with tenants.
+          Be helpful while maintaining appropriate boundaries.
+        temperature: 0.7
+        maxTokens: 1024
+
+      documentSummary:
+        systemPrompt: |
+          You are a document analysis assistant for property management.
+          Provide clear, concise summaries of legal and property documents.
+          Highlight key terms, dates, and obligations.
+        temperature: 0.2
+        maxTokens: 1500
+
+      maintenanceRequest:
+        systemPrompt: |
+          You are a maintenance coordination assistant.
+          Help prioritize and categorize maintenance requests.
+          Provide clear guidance on urgency and next steps.
+        temperature: 0.5
+        maxTokens: 512
+
+    # Model selection rules based on task
+    taskRouting:
+      - task: lease-analysis
+        preferredModel: llama-3-8b-instruct
+        fallbackModel: mistral-7b-instruct
+      - task: document-qa
+        preferredModel: llama-3-8b-instruct
+        fallbackModel: mistral-7b-instruct
+      - task: quick-query
+        preferredModel: mistral-7b-instruct
+        fallbackModel: llama-3-8b-instruct
+      - task: embedding
+        preferredModel: bge-large-en
+        fallbackModel: null
+---
+# Secret for model registry credentials (if needed)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: model-registry-credentials
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: model-registry-credentials
+    app.kubernetes.io/instance: {{ .Release.Name }}
+type: Opaque
+stringData:
+  # Placeholder - replace with actual credentials
+  HF_TOKEN: ""
+---
+{{- if .Values.llamaStack.enabled }}
+# Llama Stack Deployment for Guardrails
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.llamaStack.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/name: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: guardrails
+    app.kubernetes.io/part-of: neio-openshift-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.llamaStack.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.llamaStack.name }}
+        app.kubernetes.io/name: {{ .Values.llamaStack.name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.security.podSecurityContext | nindent 8 }}
+      containers:
+        - name: llama-stack
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.llamaStack.image.repository }}:{{ .Values.llamaStack.image.tag }}"
+          imagePullPolicy: {{ .Values.llamaStack.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.security.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: LLAMA_STACK_CONFIG
+              value: /etc/llama-stack/config.yaml
+            - name: GUARDRAILS_ENABLED
+              value: {{ .Values.llamaStack.guardrails.enabled | quote }}
+            - name: INPUT_FILTERING
+              value: {{ .Values.llamaStack.guardrails.inputFiltering | quote }}
+            - name: OUTPUT_FILTERING
+              value: {{ .Values.llamaStack.guardrails.outputFiltering | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/llama-stack
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.llamaStack.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.llamaStack.name }}-config
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.llamaStack.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.llamaStack.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.llamaStack.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.llamaStack.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/name: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: {{ .Values.llamaStack.name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.llamaStack.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/name: {{ .Values.llamaStack.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  config.yaml: |
+    # Llama Stack Configuration for NeIO LeasingOps
+    version: "0.1"
+
+    # Guardrails configuration
+    guardrails:
+      enabled: {{ .Values.llamaStack.guardrails.enabled }}
+
+      # Input filtering
+      input:
+        enabled: {{ .Values.llamaStack.guardrails.inputFiltering }}
+        filters:
+          - type: content-safety
+            enabled: {{ .Values.llamaStack.guardrails.contentSafety.enabled }}
+            config:
+              toxicityThreshold: {{ .Values.llamaStack.guardrails.contentSafety.toxicityThreshold }}
+              biasDetection: {{ .Values.llamaStack.guardrails.contentSafety.biasDetection }}
+              piiDetection: {{ .Values.llamaStack.guardrails.contentSafety.piiDetection }}
+          {{- if .Values.llamaStack.guardrails.topicRestrictions.enabled }}
+          - type: topic-restriction
+            enabled: true
+            config:
+              allowedTopics:
+                {{- range .Values.llamaStack.guardrails.topicRestrictions.allowedTopics }}
+                - {{ . }}
+                {{- end }}
+              blockedTopics:
+                {{- range .Values.llamaStack.guardrails.topicRestrictions.blockedTopics }}
+                - {{ . }}
+                {{- end }}
+          {{- end }}
+
+      # Output filtering
+      output:
+        enabled: {{ .Values.llamaStack.guardrails.outputFiltering }}
+        filters:
+          - type: content-safety
+            enabled: true
+          - type: pii-redaction
+            enabled: {{ .Values.llamaStack.guardrails.contentSafety.piiDetection }}
+
+      # Rate limiting
+      rateLimiting:
+        enabled: {{ .Values.llamaStack.guardrails.rateLimiting.enabled }}
+        requestsPerMinute: {{ .Values.llamaStack.guardrails.rateLimiting.requestsPerMinute }}
+        tokensPerMinute: {{ .Values.llamaStack.guardrails.rateLimiting.tokensPerMinute }}
+
+    # Agent configuration
+    agents:
+      enabled: {{ .Values.llamaStack.agents.enabled }}
+      maxConcurrent: {{ .Values.llamaStack.agents.maxConcurrentAgents }}
+      defaultTimeout: {{ .Values.llamaStack.agents.defaultTimeout }}
+
+    # Logging
+    logging:
+      level: info
+      format: json
+{{- end }}
+---
+{{- if .Values.monitoring.enabled }}
+# ServiceMonitor for Prometheus scraping
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: neio-openshift-ai
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: neio-openshift-ai
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: neio-openshift-ai
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+      path: /metrics
+{{- end }}

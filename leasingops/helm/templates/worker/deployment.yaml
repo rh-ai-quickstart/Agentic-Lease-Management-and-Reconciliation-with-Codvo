@@ -1,0 +1,362 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if not (and .Values.worker.autoscaling .Values.worker.autoscaling.enabled) }}
+  replicas: {{ .Values.worker.replicas | default .Values.worker.replicaCount | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "neio-leasingops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "neio-leasingops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/api/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secrets/secrets.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.worker.securityContext | nindent 12 }}
+          # Same image as API but different command
+          image: "{{ .Values.worker.image.repository | default .Values.api.image.repository }}:{{ .Values.worker.image.tag | default .Values.api.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy | default .Values.api.image.pullPolicy | default "IfNotPresent" }}
+
+          # Worker-specific command
+          command:
+            {{- if .Values.worker.command }}
+            {{- toYaml .Values.worker.command | nindent 12 }}
+            {{- else }}
+            - python
+            - -m
+            - app.worker
+            {{- end }}
+
+          args:
+            {{- if .Values.worker.args }}
+            {{- toYaml .Values.worker.args | nindent 12 }}
+            {{- else }}
+            {{- $workerConcurrency := .Values.worker.concurrency | default ((.Values.worker.env).WORKER_CONCURRENCY) | default "4" }}
+            {{- $workerQueue := "" }}
+            {{- if and .Values.worker.queue .Values.worker.queue.name }}
+            {{- $workerQueue = .Values.worker.queue.name }}
+            {{- else if .Values.worker.env }}
+            {{- $workerQueue = .Values.worker.env.WORKER_QUEUE | default "default,documents,ai" }}
+            {{- else }}
+            {{- $workerQueue = "default,documents,ai" }}
+            {{- end }}
+            - --concurrency={{ $workerConcurrency }}
+            - --queue={{ $workerQueue }}
+            {{- end }}
+
+          env:
+            # Application Configuration
+            - name: UIP_SOLUTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: UIP_SOLUTIONS
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | default "production" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.worker.logLevel | default "INFO" | quote }}
+            - name: WORKER_MODE
+              value: "true"
+
+            # Database Configuration
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: POSTGRES_PASSWORD
+
+            # Redis Configuration (for job queue)
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: REDIS_PORT
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
+
+            # Vector Store Configuration
+            - name: QDRANT_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: QDRANT_HOST
+            - name: QDRANT_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: QDRANT_PORT
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: QDRANT_API_KEY
+                  optional: true
+
+            # AI/LLM Configuration
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: VOYAGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: VOYAGE_API_KEY
+                  optional: true
+
+            # OpenShift AI Configuration
+            - name: OPENSHIFT_AI_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: OPENSHIFT_AI_ENABLED
+            - name: OPENSHIFT_AI_INFERENCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: OPENSHIFT_AI_INFERENCE_URL
+                  optional: true
+
+            # Worker-specific Configuration
+            - name: WORKER_CONCURRENCY
+              value: {{ .Values.worker.concurrency | default ((.Values.worker.env).WORKER_CONCURRENCY) | default "4" | quote }}
+            - name: WORKER_QUEUE_NAME
+              {{- $workerQueueEnv := "" }}
+              {{- if and .Values.worker.queue .Values.worker.queue.name }}
+              {{- $workerQueueEnv = .Values.worker.queue.name }}
+              {{- else if .Values.worker.env }}
+              {{- $workerQueueEnv = .Values.worker.env.WORKER_QUEUE | default "default,documents,ai" }}
+              {{- else }}
+              {{- $workerQueueEnv = "default,documents,ai" }}
+              {{- end }}
+              value: {{ $workerQueueEnv | quote }}
+            - name: WORKER_PREFETCH_COUNT
+              value: {{ .Values.worker.prefetchCount | default "1" | quote }}
+            - name: WORKER_MAX_RETRIES
+              value: {{ .Values.worker.maxRetries | default "3" | quote }}
+            - name: WORKER_RETRY_DELAY
+              value: {{ .Values.worker.retryDelay | default "60" | quote }}
+
+            # Feature Flags (same as API)
+            {{- range $key, $value := .Values.featureFlags }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+
+          # Worker health check
+          {{- if .Values.worker.livenessProbe }}
+          livenessProbe:
+            {{- if .Values.worker.livenessProbe.exec }}
+            exec:
+              {{- toYaml .Values.worker.livenessProbe.exec | nindent 14 }}
+            {{- else }}
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            {{- end }}
+            initialDelaySeconds: {{ .Values.worker.livenessProbe.initialDelaySeconds | default 30 }}
+            periodSeconds: {{ .Values.worker.livenessProbe.periodSeconds | default 30 }}
+            timeoutSeconds: {{ .Values.worker.livenessProbe.timeoutSeconds | default 10 }}
+            failureThreshold: {{ .Values.worker.livenessProbe.failureThreshold | default 3 }}
+          {{- else }}
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          {{- end }}
+
+          {{- if .Values.worker.readinessProbe }}
+          readinessProbe:
+            {{- if .Values.worker.readinessProbe.exec }}
+            exec:
+              {{- toYaml .Values.worker.readinessProbe.exec | nindent 14 }}
+            {{- else }}
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            {{- end }}
+            initialDelaySeconds: {{ .Values.worker.readinessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.worker.readinessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.worker.readinessProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.worker.readinessProbe.failureThreshold | default 3 }}
+          {{- else }}
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- end }}
+
+          # Lower resource requirements than API
+          resources:
+            limits:
+              cpu: {{ .Values.worker.resources.limits.cpu | default "1" | quote }}
+              memory: {{ .Values.worker.resources.limits.memory | default "1Gi" | quote }}
+            requests:
+              cpu: {{ .Values.worker.resources.requests.cpu | default "250m" | quote }}
+              memory: {{ .Values.worker.resources.requests.memory | default "512Mi" | quote }}
+
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: work-volume
+              mountPath: /app/work
+            {{- if .Values.worker.extraVolumeMounts }}
+            {{- toYaml .Values.worker.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "neio-leasingops.fullname" . }}-api-config
+        - name: tmp-volume
+          emptyDir: {}
+        - name: work-volume
+          emptyDir:
+            sizeLimit: {{ .Values.worker.workVolumeSizeLimit | default "2Gi" }}
+        {{- if .Values.worker.extraVolumes }}
+        {{- toYaml .Values.worker.extraVolumes | nindent 8 }}
+        {{- end }}
+
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- if and .Values.worker.autoscaling .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "neio-leasingops.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas | default 2 }}
+  metrics:
+    {{- if .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.worker.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+{{- end }}
+{{- end }}

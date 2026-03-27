@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "qdrant.fullname" . }}
+  labels:
+    {{- include "qdrant.labels" . | nindent 4 }}
+data:
+  production.yaml: |
+    # Qdrant production configuration
+    log_level: INFO
+
+    storage:
+      # Storage directory
+      storage_path: /qdrant/storage
+
+      # Optimizer settings
+      optimizers:
+        default_segment_number: {{ .Values.qdrant.storage.optimizers.defaultSegmentNumber }}
+        max_segment_size_kb: {{ .Values.qdrant.storage.optimizers.maxSegmentSize }}
+
+      # Write-ahead log
+      wal:
+        wal_capacity_mb: {{ .Values.qdrant.storage.wal.walCapacityMb }}
+        wal_segments_ahead: {{ .Values.qdrant.storage.wal.walSegmentsAhead }}
+
+      # Performance settings
+      performance:
+        max_search_threads: 0  # Auto-detect
+
+    service:
+      # HTTP API
+      http_port: 6333
+
+      # gRPC API
+      grpc_port: {{ .Values.qdrant.grpcPort }}
+
+      # Enable CORS
+      {{- if .Values.qdrant.enableCors }}
+      enable_cors: true
+      {{- else }}
+      enable_cors: false
+      {{- end }}
+
+      # Telemetry
+      {{- if .Values.metrics.enabled }}
+      enable_tls: false
+      {{- end }}
+
+    # Cluster configuration (single node for now)
+    cluster:
+      enabled: false
+
+    # Telemetry
+    telemetry_disabled: {{ not .Values.metrics.enabled }}

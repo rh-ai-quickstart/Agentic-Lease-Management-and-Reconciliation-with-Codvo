@@ -1,0 +1,169 @@
+# NeIO LeasingOps — RSDP Deployment Values Template
+#
+# RSDP (Red Hat Solution Deployment Platform) will inject the three LLM values
+# below when running:
+#
+#   helm install neio-leasingops ./leasingops/helm \
+#     --namespace neio-leasingops \
+#     --values values-rsdp.yaml
+#
+# RSDP injects: llm.url, llm.apiToken, llm.model
+# RSDP pre-provisions all infra listed in helm/infra/Chart.yaml.
+# This values file assumes infra is already present on the cluster.
+#
+# DO NOT commit actual tokens to this file. This file is a template only.
+
+# =============================================================================
+# LLM — injected by RSDP (subscription-limited token, valid for limited hours)
+# =============================================================================
+llm:
+  # Example: https://llama-70b.models.rsdp.redhat.io/v1
+  url: ""            # <-- RSDP injects this
+  apiToken: ""       # <-- RSDP injects this (short-lived)
+  model: ""          # <-- RSDP injects this (e.g. meta-llama/Llama-3-70b-chat-hf)
+  maxTokens: 4096
+  temperature: 0.7
+  apiPath: "/v1/chat/completions"
+
+# =============================================================================
+# GLOBAL — for RSDP the namespace and registry are typically pre-configured
+# =============================================================================
+global:
+  namespace: neio-leasingops
+  imageRegistry: quay.io/codvo-neio
+  imagePullPolicy: IfNotPresent
+  environment: production
+  openshift:
+    enabled: true
+    route:
+      enabled: true
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  enabled: true
+  replicas: 2
+  image:
+    repository: leasingops-app
+    tag: "1.0.0"
+
+api:
+  enabled: true
+  replicas: 2
+  image:
+    repository: leasingops-api
+    tag: "1.0.0"
+
+worker:
+  enabled: true
+  replicas: 1
+  image:
+    repository: leasingops-worker
+    tag: "1.0.0"
+
+# =============================================================================
+# DATABASE — RSDP pre-provisions PostgreSQL (with pgvector) via infra chart.
+# Point to the pre-provisioned instance below.
+# =============================================================================
+database:
+  external:
+    enabled: true
+    host: "postgresql.neio-leasingops.svc.cluster.local"
+    port: 5432
+    name: leasingops
+    user: leasingops
+    existingSecret: leasingops-secrets
+    existingSecretKey: database-password
+    sslMode: require
+  internal:
+    enabled: false
+
+# =============================================================================
+# CACHE — RSDP pre-provisions Redis via infra chart.
+# =============================================================================
+cache:
+  provider: redis
+  external:
+    enabled: true
+    host: "redis-master.neio-leasingops.svc.cluster.local"
+    port: 6379
+    tls: false
+  internal:
+    enabled: false
+
+# =============================================================================
+# VECTOR STORE — pgvector on the pre-provisioned PostgreSQL instance
+# =============================================================================
+vectorStore:
+  provider: pgvector
+  pgvector:
+    enabled: true
+    dimension: 1024
+
+# =============================================================================
+# OBJECT STORAGE — RSDP typically provides S3-compatible storage.
+# Set provider: s3 and supply credentials, or use internal MinIO for testing.
+# =============================================================================
+storage:
+  provider: s3
+  bucket: leasingops-documents
+  s3:
+    enabled: true
+    region: us-east-1
+    bucket: ""
+    existingSecret: leasingops-secrets
+    existingSecretAccessKeyId: aws-access-key-id
+    existingSecretSecretKey: aws-secret-access-key
+
+# =============================================================================
+# AI — on RSDP the primary provider is the injected LLM endpoint (see llm: above).
+# Disable local/Claude providers for RSDP.
+# =============================================================================
+ai:
+  provider: rsdp-llm   # uses LLM_URL / LLM_API_TOKEN / LLM_MODEL from llm block
+  claude:
+    enabled: false
+  openshiftAI:
+    enabled: false
+  llmd:
+    enabled: false
+  llamaStack:
+    enabled: false
+  embeddings:
+    provider: voyage
+    model: voyage-2
+    dimension: 1024
+  rag:
+    enabled: true
+    chunkSize: 1000
+    chunkOverlap: 200
+    topK: 10
+    reranking:
+      enabled: true
+      model: rerank-2
+
+# =============================================================================
+# MONITORING — OpenShift monitoring stack
+# =============================================================================
+monitoring:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: neio-leasingops
+      interval: 30s
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+security:
+  podSecurityStandards:
+    enforce: restricted
+  serviceAccount:
+    create: true
+  rbac:
+    create: true

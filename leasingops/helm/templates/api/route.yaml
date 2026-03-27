@@ -1,0 +1,51 @@
+{{- if and .Values.api.enabled .Values.api.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  annotations:
+    {{- if .Values.api.route.annotations }}
+    {{- toYaml .Values.api.route.annotations | nindent 4 }}
+    {{- end }}
+    # OpenShift-specific annotations for routing
+    haproxy.router.openshift.io/timeout: {{ .Values.api.route.timeout | default "60s" }}
+    haproxy.router.openshift.io/balance: {{ .Values.api.route.loadBalancer | default "roundrobin" }}
+    {{- if and .Values.api.route.rateLimit .Values.api.route.rateLimit.enabled }}
+    haproxy.router.openshift.io/rate-limit-connections: "true"
+    haproxy.router.openshift.io/rate-limit-connections.concurrent-tcp: {{ .Values.api.route.rateLimit.concurrentTcp | default "100" | quote }}
+    haproxy.router.openshift.io/rate-limit-connections.rate-tcp: {{ .Values.api.route.rateLimit.rateTcp | default "100" | quote }}
+    {{- end }}
+spec:
+  {{- if .Values.api.route.host }}
+  host: {{ .Values.api.route.host }}
+  {{- end }}
+  path: {{ .Values.api.route.path | default "/api" }}
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: {{ include "neio-leasingops.fullname" . }}-api
+    weight: 100
+  {{- if .Values.api.route.tls.enabled }}
+  tls:
+    termination: {{ .Values.api.route.tls.termination | default "edge" }}
+    insecureEdgeTerminationPolicy: {{ .Values.api.route.tls.insecureEdgeTerminationPolicy | default "Redirect" }}
+    {{- if .Values.api.route.tls.certificate }}
+    certificate: |
+      {{- .Values.api.route.tls.certificate | nindent 6 }}
+    {{- end }}
+    {{- if .Values.api.route.tls.key }}
+    key: |
+      {{- .Values.api.route.tls.key | nindent 6 }}
+    {{- end }}
+    {{- if .Values.api.route.tls.caCertificate }}
+    caCertificate: |
+      {{- .Values.api.route.tls.caCertificate | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}

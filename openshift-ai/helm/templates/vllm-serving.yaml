@@ -1,0 +1,207 @@
+{{- if .Values.vllm.enabled }}
+# vLLM ServingRuntime for OpenShift AI
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: vllm-runtime
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: serving-runtime
+    app.kubernetes.io/part-of: neio-openshift-ai
+  annotations:
+    openshift.io/display-name: vLLM ServingRuntime for NeIO
+spec:
+  annotations:
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+  supportedModelFormats:
+    - name: pytorch
+      version: "1"
+      autoSelect: true
+    - name: huggingface
+      version: "1"
+      autoSelect: true
+  multiModel: false
+  containers:
+    - name: kserve-container
+      image: "{{ .Values.global.imageRegistry }}/rhoai/vllm-openai-ubi9:latest"
+      command:
+        - python
+        - -m
+        - vllm.entrypoints.openai.api_server
+      args:
+        - --model
+        - /mnt/models
+        - --port
+        - "8080"
+        - --tensor-parallel-size
+        - "{{ .Values.vllm.tensorParallelism }}"
+        - --pipeline-parallel-size
+        - "{{ .Values.vllm.pipelineParallelism }}"
+        - --max-model-len
+        - "{{ .Values.vllm.maxModelLen }}"
+        - --gpu-memory-utilization
+        - "{{ .Values.vllm.gpuMemoryUtilization }}"
+        - --trust-remote-code
+        - --disable-log-requests
+      env:
+        - name: HF_HOME
+          value: /tmp/huggingface
+        - name: TRANSFORMERS_CACHE
+          value: /tmp/transformers
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: VLLM_ATTENTION_BACKEND
+          value: FLASH_ATTN
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      resources:
+        {{- toYaml .Values.vllm.resources | nindent 8 }}
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 16Gi
+    - name: tmp
+      emptyDir: {}
+---
+# InferenceService for the LLM model
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ .Values.vllm.model.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.vllm.model.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: inference-service
+    app.kubernetes.io/part-of: neio-openshift-ai
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+    serving.kserve.io/autoscalerClass: hpa
+    serving.kserve.io/enable-prometheus-scraping: "true"
+spec:
+  predictor:
+    minReplicas: {{ .Values.vllm.serving.replicas }}
+    {{- if .Values.vllm.autoscaling.enabled }}
+    maxReplicas: {{ .Values.vllm.autoscaling.maxReplicas }}
+    scaleTarget: {{ .Values.vllm.autoscaling.targetCPUUtilization }}
+    scaleMetric: cpu
+    {{- end }}
+    model:
+      modelFormat:
+        name: pytorch
+      runtime: vllm-runtime
+      storageUri: "pvc://model-storage/{{ .Values.vllm.model.name }}"
+      resources:
+        {{- toYaml .Values.vllm.resources | nindent 8 }}
+    {{- with .Values.vllm.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.vllm.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.vllm.affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+---
+# Service for direct access to vLLM
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-{{ .Values.vllm.model.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: vllm-{{ .Values.vllm.model.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.vllm.serving.port }}
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    serving.kserve.io/inferenceservice: {{ .Values.vllm.model.name }}
+---
+# Route for external access (OpenShift specific)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vllm-{{ .Values.vllm.model.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: vllm-{{ .Values.vllm.model.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  to:
+    kind: Service
+    name: vllm-{{ .Values.vllm.model.name }}
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# PVC for model storage
+{{- if .Values.modelServing.storage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: model-storage
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.modelServing.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.modelServing.storage.size }}
+{{- end }}
+---
+# HorizontalPodAutoscaler for vLLM
+{{- if .Values.vllm.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vllm-{{ .Values.vllm.model.name }}-hpa
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: vllm-{{ .Values.vllm.model.name }}-hpa
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.vllm.model.name }}-predictor
+  minReplicas: {{ .Values.vllm.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.vllm.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vllm.autoscaling.targetCPUUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vllm.autoscaling.targetMemoryUtilization }}
+{{- end }}
+{{- end }}

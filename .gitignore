@@ -1,0 +1,32 @@
+# Helm
+charts/
+*.tgz
+.cr-release-packages/
+
+# Values overrides (never commit secrets)
+values-local.yaml
+values-dev.yaml
+values-secrets.yaml
+*-secrets.yaml
+secrets.yaml
+
+# Generated
+CHANGELOG.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kubeconfig
+kubeconfig
+*.kubeconfig
+
+# Temp
+tmp/
+.tmp/

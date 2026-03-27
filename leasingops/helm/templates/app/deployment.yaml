@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-app
+  namespace: {{ ((.Values.namespace).name) | default .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  replicas: {{ .Values.app.replicaCount | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "neio-leasingops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        {{- include "neio-leasingops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+      {{- with .Values.app.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "neio-leasingops.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.app.podSecurityContext | nindent 8 }}
+      containers:
+        - name: app
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.app.env.nodeEnv | default "production" | quote }}
+            - name: NEXT_PUBLIC_API_URL
+              value: {{ .Values.app.env.apiUrl | quote }}
+            {{- if .Values.app.env.extraEnv }}
+            {{- range $key, $value := .Values.app.env.extraEnv }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.app.envFrom }}
+          envFrom:
+            {{- toYaml .Values.app.envFrom | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.app.livenessProbe.path | default "/api/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.app.livenessProbe.initialDelaySeconds | default 30 }}
+            periodSeconds: {{ .Values.app.livenessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.app.livenessProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.app.livenessProbe.failureThreshold | default 3 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.app.readinessProbe.path | default "/api/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.app.readinessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.app.readinessProbe.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.app.readinessProbe.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.app.readinessProbe.failureThreshold | default 3 }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

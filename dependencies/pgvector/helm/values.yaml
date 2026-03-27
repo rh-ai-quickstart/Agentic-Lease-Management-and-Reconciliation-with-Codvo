@@ -1,0 +1,108 @@
+# Default values for pgvector PostgreSQL
+replicaCount: 1
+
+image:
+  repository: pgvector/pgvector
+  tag: pg16
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# PostgreSQL configuration
+postgresql:
+  database: neio
+  username: neio
+  # password should be set via secret or override
+  password: ""
+  # Existing secret with postgresql-password key
+  existingSecret: ""
+  # Maximum connections
+  maxConnections: 100
+  # Shared buffers (25% of available RAM recommended)
+  sharedBuffers: 256MB
+  # Work memory
+  workMem: 16MB
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5432
+  annotations: {}
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 999
+
+# Container security context
+securityContext:
+  runAsUser: 999
+  runAsGroup: 999
+  runAsNonRoot: true
+
+# Liveness probe
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+# Readiness probe
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+# Extra environment variables
+extraEnv: []
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Init containers
+initContainers: []
+
+# Sidecar containers
+sidecars: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}

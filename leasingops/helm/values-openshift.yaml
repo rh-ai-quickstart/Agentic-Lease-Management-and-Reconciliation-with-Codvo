@@ -1,0 +1,303 @@
+# NeIO LeasingOps - OpenShift-Specific Values
+# Use with: helm install -f values.yaml -f values-openshift.yaml
+
+# =============================================================================
+# GLOBAL OPENSHIFT SETTINGS
+# =============================================================================
+global:
+  # Enable OpenShift-specific features
+  openshift:
+    enabled: true
+    route:
+      enabled: true
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+  # OpenShift restricted SCC compatible security context
+  # Reference: https://docs.openshift.com/container-platform/4.14/authentication/managing-security-context-constraints.html
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+# =============================================================================
+# APPLICATION FRONTEND - OpenShift Configuration
+# =============================================================================
+app:
+  # OpenShift Route configuration
+  route:
+    enabled: true
+    host: leasingops.apps.cluster.example.com
+    path: /
+    tls:
+      enabled: true
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+    annotations:
+      # OpenShift route annotations
+      haproxy.router.openshift.io/timeout: 60s
+      haproxy.router.openshift.io/balance: roundrobin
+      router.openshift.io/cookie-same-site: Strict
+      router.openshift.io/cookie_name: leasingops-app
+
+  # Disable Kubernetes Ingress (using OpenShift Routes instead)
+  ingress:
+    enabled: false
+
+  # Container security context for restricted SCC
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+# =============================================================================
+# API SERVER - OpenShift Configuration
+# =============================================================================
+api:
+  # OpenShift Route configuration
+  route:
+    enabled: true
+    host: api-leasingops.apps.cluster.example.com
+    path: /
+    tls:
+      enabled: true
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+    annotations:
+      haproxy.router.openshift.io/timeout: 120s
+      haproxy.router.openshift.io/balance: roundrobin
+      # Enable WebSocket support for streaming responses
+      haproxy.router.openshift.io/hsts_header: max-age=31536000;includeSubDomains
+
+  # Container security context for restricted SCC
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Environment variables for OpenShift
+  env:
+    # Inherit from base values.yaml
+    ENVIRONMENT: production
+    LOG_LEVEL: info
+
+    # OpenShift-specific settings
+    OPENSHIFT_ENABLED: "true"
+
+    # Trust OpenShift router headers
+    FORWARDED_ALLOW_IPS: "*"
+    PROXY_HEADERS: "true"
+
+# =============================================================================
+# BACKGROUND WORKER - OpenShift Configuration
+# =============================================================================
+worker:
+  # Container security context for restricted SCC
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+# =============================================================================
+# AI CONFIGURATION - OpenShift AI Integration
+# =============================================================================
+ai:
+  # Enable OpenShift AI as primary provider
+  provider: openshift-ai
+
+  # OpenShift AI / Red Hat OpenShift AI (RHOAI) integration
+  openshiftAI:
+    enabled: true
+    # KServe/ModelMesh serving runtime endpoint
+    # This will be auto-discovered from InferenceService if not specified
+    endpoint: ""
+    # Model name deployed via OpenShift AI Model Serving
+    modelName: "llama-3.1-8b-instruct"
+    # InferenceService name (if using KServe)
+    inferenceServiceName: "leasingops-llm"
+    # Namespace where model is deployed (defaults to same namespace)
+    namespace: ""
+    # Authentication for model endpoint
+    auth:
+      enabled: true
+      # ServiceAccount token authentication
+      serviceAccountToken: true
+      # Or use bearer token from secret
+      existingSecret: ""
+      existingSecretKey: model-api-key
+    # Model serving configuration
+    serving:
+      # Runtime: vllm, tgis, caikit
+      runtime: vllm
+      # GPU resources
+      resources:
+        requests:
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/gpu: "1"
+
+  # Disable external Claude API when using OpenShift AI
+  claude:
+    enabled: false
+
+  # Embeddings - use local model for air-gapped compatibility
+  embeddings:
+    provider: local
+    model: sentence-transformers/all-MiniLM-L6-v2
+    dimension: 384
+
+    local:
+      enabled: true
+      # Can also use OpenShift AI for embeddings
+      openshiftAI:
+        enabled: false
+        inferenceServiceName: "leasingops-embeddings"
+
+# =============================================================================
+# DATABASE - OpenShift Configuration
+# =============================================================================
+database:
+  # For OpenShift, typically use external managed database
+  # such as Amazon RDS, Azure Database, or Crunchy PostgreSQL Operator
+  external:
+    enabled: true
+    # Connection via OpenShift Service binding
+    serviceBinding:
+      enabled: false
+      serviceName: ""
+
+  internal:
+    enabled: false
+
+# =============================================================================
+# VECTOR STORE - OpenShift Configuration
+# =============================================================================
+vectorStore:
+  provider: pgvector
+
+  pgvector:
+    enabled: true
+
+# =============================================================================
+# OBJECT STORAGE - OpenShift Configuration
+# =============================================================================
+storage:
+  # For OpenShift, prefer OpenShift Data Foundation (ODF) or external S3
+  provider: s3
+
+  # MinIO can run on OpenShift with proper SCC
+  minio:
+    enabled: false
+    internal:
+      enabled: false
+      # Security context for MinIO on OpenShift
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+
+  # AWS S3 or S3-compatible (like ODF ObjectBucketClaim)
+  s3:
+    enabled: true
+    # For ODF ObjectBucketClaim, these are auto-populated
+    region: ""
+    bucket: leasingops-documents
+    # Use secret binding from ObjectBucketClaim
+    existingSecret: leasingops-bucket-credentials
+    existingSecretAccessKeyId: AWS_ACCESS_KEY_ID
+    existingSecretSecretKey: AWS_SECRET_ACCESS_KEY
+
+# =============================================================================
+# CACHE - OpenShift Configuration
+# =============================================================================
+cache:
+  internal:
+    enabled: true
+    # Security context for Redis on OpenShift
+    securityContext:
+      runAsNonRoot: true
+      fsGroup: 1000
+
+# =============================================================================
+# AUTHENTICATION - OpenShift OAuth Integration
+# =============================================================================
+auth:
+  # Can integrate with OpenShift OAuth
+  provider: keycloak
+
+  # Red Hat SSO (Keycloak) integration
+  keycloak:
+    enabled: true
+    # Use Red Hat SSO Operator
+    operator:
+      enabled: false
+      realm: leasingops
+
+# =============================================================================
+# MONITORING - OpenShift Observability
+# =============================================================================
+monitoring:
+  prometheus:
+    enabled: true
+    # Use OpenShift User Workload Monitoring
+    serviceMonitor:
+      enabled: true
+      # OpenShift monitoring namespace
+      namespace: openshift-user-workload-monitoring
+      interval: 30s
+      scrapeTimeout: 10s
+      # Labels required by OpenShift monitoring
+      labels:
+        app.kubernetes.io/part-of: neio-leasingops
+
+# =============================================================================
+# NETWORK POLICIES - OpenShift Configuration
+# =============================================================================
+networkPolicies:
+  enabled: true
+
+  # Allow ingress from OpenShift router and monitoring
+  allowedNamespaces:
+    - openshift-ingress
+    - openshift-monitoring
+    - openshift-user-workload-monitoring
+
+# =============================================================================
+# SECURITY - OpenShift Configuration
+# =============================================================================
+security:
+  # OpenShift uses SCCs instead of PSP
+  podSecurityStandards:
+    enforce: restricted
+
+  # Service account for workload identity
+  serviceAccount:
+    create: true
+    annotations:
+      # For AWS IRSA on ROSA
+      # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/leasingops-role
+      # For Azure Workload Identity on ARO
+      # azure.workload.identity/client-id: ""
+
+  # RBAC is managed differently in OpenShift
+  rbac:
+    create: true
+    # Additional cluster role bindings for OpenShift
+    clusterRoleBindings:
+      - name: leasingops-scc-restricted
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: system:openshift:scc:restricted-v2

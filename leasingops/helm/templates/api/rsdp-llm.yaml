@@ -1,0 +1,22 @@
+{{- if and .Values.llm .Values.llm.apiToken }}
+# =============================================================================
+# RSDP LLM Secret
+# Created when llm.apiToken is provided via Helm values (injected by RSDP).
+# For RSDP deployments, RSDP injects: llm.url, llm.apiToken, llm.model
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-llm-token
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  annotations:
+    helm.sh/resource-policy: keep
+    # This secret is lifecycle-managed by RSDP — token has a limited validity window.
+    rsdp.redhat.io/managed: "true"
+type: Opaque
+stringData:
+  LLM_API_TOKEN: {{ .Values.llm.apiToken | quote }}
+{{- end }}

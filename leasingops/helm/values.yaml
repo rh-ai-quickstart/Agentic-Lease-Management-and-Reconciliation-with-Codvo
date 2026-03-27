@@ -1,0 +1,719 @@
+# NeIO LeasingOps - Default Configuration Values
+# AI-powered Aircraft Leasing Operations Platform
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+global:
+  # Kubernetes namespace for deployment
+  namespace: neio-leasingops
+
+  # Image pull secret for private registries
+  pullSecret: ""
+
+  # Default container registry
+  imageRegistry: quay.io/codvo-neio
+
+  # Image pull policy
+  imagePullPolicy: IfNotPresent
+
+  # Environment label
+  environment: production
+
+  # Enable/disable OpenShift-specific features
+  openshift:
+    enabled: false
+    route:
+      enabled: true
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+  # Pod security context defaults
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Node selector for all pods
+  nodeSelector: {}
+
+  # Tolerations for all pods
+  tolerations: []
+
+  # Affinity rules for all pods
+  affinity: {}
+
+# =============================================================================
+# RSDP LLM CONFIGURATION
+# RSDP injects these three values during helm install via --set or a values file.
+# The application reads LLM_URL / LLM_API_TOKEN / LLM_MODEL at runtime.
+# For non-RSDP deployments, set these to your preferred LLM endpoint.
+# =============================================================================
+llm:
+  # Remote LLM inference endpoint URL (e.g. https://api.openai.com/v1)
+  # Injected by RSDP as: llm.url
+  url: ""
+
+  # API token for authenticating to the LLM endpoint.
+  # Injected by RSDP as: llm.apiToken  — stored as a Kubernetes Secret.
+  apiToken: ""
+
+  # Model name/ID to use (e.g. meta-llama/Llama-3-70b-chat-hf)
+  # Injected by RSDP as: llm.model
+  model: ""
+
+  # Optional tuning parameters
+  maxTokens: 4096
+  temperature: 0.7
+  # OpenAI-compatible API path (default works for vLLM, OpenAI, and most RSDP-hosted models)
+  apiPath: "/v1/chat/completions"
+
+# =============================================================================
+# APPLICATION FRONTEND
+# =============================================================================
+app:
+  enabled: true
+
+  # Container image settings
+  image:
+    repository: leasingops-app
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Replica configuration
+  replicas: 2
+
+  # Resource limits and requests
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+  # Health check probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  # Route/Ingress configuration
+  route:
+    enabled: true
+    host: leasingops.apps.example.com
+    path: /
+    tls:
+      enabled: true
+      termination: edge
+
+  # Ingress (for non-OpenShift)
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: leasingops.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Environment variables
+  env:
+    NEXT_PUBLIC_API_URL: ""
+    NEXT_PUBLIC_WS_URL: ""
+
+  # Pod disruption budget
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# =============================================================================
+# API SERVER
+# =============================================================================
+api:
+  enabled: true
+
+  # Container image settings
+  image:
+    repository: leasingops-api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Replica configuration
+  replicas: 2
+
+  # Resource limits and requests
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  # Health check probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+
+  # Route configuration (OpenShift)
+  route:
+    enabled: true
+    host: api-leasingops.apps.example.com
+    path: /
+    tls:
+      enabled: true
+      termination: edge
+
+  # Environment variables
+  env:
+    # Application settings
+    ENVIRONMENT: production
+    LOG_LEVEL: info
+    DEBUG: "false"
+
+    # CORS settings
+    ALLOWED_ORIGINS: "https://leasingops.apps.example.com"
+
+    # JWT settings
+    JWT_ALGORITHM: HS256
+    JWT_EXPIRATION_HOURS: "24"
+
+    # Rate limiting
+    RATE_LIMIT_ENABLED: "true"
+    RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+
+    # Feature flags
+    QUERY_ROUTING_ENABLED: "true"
+    RAG_ENABLED: "true"
+    HYBRID_SEARCH_ENABLED: "true"
+
+  # Secret environment variables (referenced from secrets)
+  secretEnv:
+    - name: DATABASE_URL
+      secretKeyRef:
+        name: leasingops-secrets
+        key: database-url
+    - name: JWT_SECRET_KEY
+      secretKeyRef:
+        name: leasingops-secrets
+        key: jwt-secret
+    - name: ANTHROPIC_API_KEY
+      secretKeyRef:
+        name: leasingops-secrets
+        key: anthropic-api-key
+
+  # Pod disruption budget
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# BACKGROUND WORKER
+# =============================================================================
+worker:
+  enabled: true
+
+  # Container image settings
+  image:
+    repository: leasingops-worker
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Replica configuration
+  replicas: 1
+
+  # Resource limits and requests
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+
+  # Health check probes
+  livenessProbe:
+    exec:
+      command:
+        - python
+        - -c
+        - "import sys; sys.exit(0)"
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  # Environment variables (inherits from api.env)
+  env:
+    WORKER_CONCURRENCY: "4"
+    WORKER_QUEUE: "default,documents,ai"
+
+  # Pod disruption budget
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+# =============================================================================
+# AI CONFIGURATION
+# =============================================================================
+ai:
+  # Primary AI provider
+  # Options: openshift-ai, claude, litellm, openai, azure-openai, ollama
+  provider: claude
+
+  # OpenShift AI / RHOAI integration
+  openshiftAI:
+    enabled: false
+    # Serving runtime endpoint
+    endpoint: ""
+    # Model name deployed in OpenShift AI
+    modelName: "llama-3.1-8b-instruct"
+    # Inference service name
+    inferenceServiceName: ""
+    # Namespace where model is deployed
+    namespace: ""
+
+  # LLMD (LLM Daemon) configuration
+  llmd:
+    enabled: false
+    image:
+      repository: llmd
+      tag: "latest"
+    resources:
+      requests:
+        memory: "8Gi"
+        cpu: "2000m"
+        nvidia.com/gpu: "1"
+      limits:
+        memory: "16Gi"
+        cpu: "4000m"
+        nvidia.com/gpu: "1"
+    models:
+      - name: llama-3.1-8b-instruct
+        quantization: q4_k_m
+
+  # Llama Stack configuration
+  llamaStack:
+    enabled: false
+    image:
+      repository: ghcr.io/meta-llama/llama-stack
+      tag: "latest"
+    port: 5000
+    resources:
+      requests:
+        memory: "16Gi"
+        cpu: "4000m"
+      limits:
+        memory: "32Gi"
+        cpu: "8000m"
+
+  # Claude API configuration
+  claude:
+    enabled: true
+    model: claude-sonnet-4-20250514
+    maxTokens: 4096
+    temperature: 0.7
+
+  # LiteLLM proxy configuration
+  litellm:
+    enabled: false
+    image:
+      repository: ghcr.io/berriai/litellm
+      tag: "main-latest"
+    port: 4000
+    models:
+      - model_name: gpt-4
+        litellm_params:
+          model: azure/gpt-4
+          api_base: ""
+          api_key: ""
+
+  # Embeddings configuration
+  embeddings:
+    # Provider: voyage, openai, sentence-transformers, local
+    provider: voyage
+    model: voyage-2
+    dimension: 1024
+
+    # Local embeddings (for air-gapped)
+    local:
+      enabled: false
+      model: sentence-transformers/all-MiniLM-L6-v2
+
+  # RAG configuration
+  rag:
+    enabled: true
+    chunkSize: 1000
+    chunkOverlap: 200
+    topK: 10
+    reranking:
+      enabled: true
+      model: rerank-2
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+database:
+  # Use external database (recommended for production)
+  external:
+    enabled: true
+    host: ""
+    port: 5432
+    name: leasingops
+    user: leasingops
+    # Password should be provided via secret
+    existingSecret: leasingops-secrets
+    existingSecretKey: database-password
+    sslMode: require
+
+  # Internal PostgreSQL (for development/testing)
+  internal:
+    enabled: false
+    image:
+      repository: postgres
+      tag: "15-alpine"
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+
+    # PostgreSQL configuration
+    config:
+      maxConnections: 100
+      sharedBuffers: 256MB
+
+# =============================================================================
+# VECTOR STORE CONFIGURATION
+# =============================================================================
+vectorStore:
+  # Provider: pgvector, qdrant, milvus, weaviate
+  provider: pgvector
+
+  # PGVector (uses same PostgreSQL instance)
+  pgvector:
+    enabled: true
+    # Extension will be created automatically
+    dimension: 1024
+
+  # Qdrant configuration
+  qdrant:
+    enabled: false
+    external:
+      enabled: false
+      host: ""
+      port: 6333
+      apiKey: ""
+    internal:
+      enabled: false
+      image:
+        repository: qdrant/qdrant
+        tag: "v1.7.4"
+      persistence:
+        enabled: true
+        size: 10Gi
+
+  # Milvus configuration
+  milvus:
+    enabled: false
+    external:
+      enabled: false
+      host: ""
+      port: 19530
+    internal:
+      enabled: false
+
+# =============================================================================
+# OBJECT STORAGE CONFIGURATION
+# =============================================================================
+storage:
+  # Provider: minio, s3, azure-blob, gcs
+  provider: minio
+
+  # Bucket name for documents
+  bucket: leasingops-documents
+
+  # MinIO configuration
+  minio:
+    enabled: true
+    external:
+      enabled: false
+      endpoint: ""
+      accessKey: ""
+      secretKey: ""
+      secure: true
+    internal:
+      enabled: true
+      image:
+        repository: minio/minio
+        tag: "RELEASE.2024-01-01T00-00-00Z"
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "250m"
+        limits:
+          memory: "2Gi"
+          cpu: "1000m"
+      persistence:
+        enabled: true
+        size: 50Gi
+        storageClass: ""
+      console:
+        enabled: true
+        port: 9001
+
+  # AWS S3 configuration
+  s3:
+    enabled: false
+    region: us-east-1
+    bucket: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+    # Use existing secret
+    existingSecret: ""
+    existingSecretAccessKeyId: aws-access-key-id
+    existingSecretSecretKey: aws-secret-access-key
+
+  # Azure Blob Storage configuration
+  azureBlob:
+    enabled: false
+    accountName: ""
+    containerName: ""
+    # Use existing secret for connection string
+    existingSecret: ""
+    existingSecretKey: azure-storage-connection-string
+
+# =============================================================================
+# CACHE CONFIGURATION
+# =============================================================================
+cache:
+  # Provider: redis, valkey
+  provider: redis
+
+  external:
+    enabled: false
+    host: ""
+    port: 6379
+    password: ""
+    tls: false
+
+  internal:
+    enabled: true
+    image:
+      repository: redis
+      tag: "7-alpine"
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "250m"
+    persistence:
+      enabled: false
+      size: 5Gi
+
+# =============================================================================
+# AUTHENTICATION CONFIGURATION
+# =============================================================================
+auth:
+  # Provider: keycloak, okta, azure-ad, auth0, local
+  provider: keycloak
+
+  # OIDC settings (common to all providers)
+  oidc:
+    enabled: true
+    issuerUrl: ""
+    clientId: ""
+    clientSecret: ""
+    scopes:
+      - openid
+      - profile
+      - email
+    # Use existing secret for client credentials
+    existingSecret: ""
+    existingSecretClientIdKey: oidc-client-id
+    existingSecretClientSecretKey: oidc-client-secret
+
+  # Keycloak configuration
+  keycloak:
+    enabled: false
+    realm: leasingops
+    adminUrl: ""
+    # Internal Keycloak deployment
+    internal:
+      enabled: false
+      image:
+        repository: quay.io/keycloak/keycloak
+        tag: "23.0"
+
+  # Okta configuration
+  okta:
+    enabled: false
+    domain: ""
+    authServerId: default
+
+  # Azure AD configuration
+  azureAD:
+    enabled: false
+    tenantId: ""
+
+  # Local authentication (development only)
+  local:
+    enabled: false
+    # Default admin credentials (CHANGE IN PRODUCTION)
+    adminEmail: admin@example.com
+    adminPassword: ""
+
+# =============================================================================
+# MONITORING & OBSERVABILITY
+# =============================================================================
+monitoring:
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+      namespace: ""
+      interval: 30s
+      scrapeTimeout: 10s
+
+  # Grafana dashboards
+  grafana:
+    enabled: false
+    dashboards:
+      enabled: true
+
+  # OpenTelemetry
+  opentelemetry:
+    enabled: false
+    endpoint: ""
+    serviceName: neio-leasingops
+
+  # Langfuse (LLM observability)
+  langfuse:
+    enabled: false
+    publicKey: ""
+    secretKey: ""
+    host: https://cloud.langfuse.com
+    existingSecret: ""
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  # Log level: debug, info, warning, error
+  level: info
+
+  # Format: json, text
+  format: json
+
+  # Aggregation
+  aggregation:
+    enabled: false
+    # Provider: elasticsearch, loki, cloudwatch
+    provider: ""
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+networkPolicies:
+  enabled: false
+
+  # Allow ingress from these namespaces
+  allowedNamespaces:
+    - openshift-ingress
+    - openshift-monitoring
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+security:
+  # Pod Security Standards
+  podSecurityStandards:
+    enforce: restricted
+
+  # Service account
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  # RBAC
+  rbac:
+    create: true
+
+  # Secrets
+  secrets:
+    # Create secrets from values (not recommended for production)
+    create: false
+    # Use external secrets operator
+    externalSecrets:
+      enabled: false
+      secretStoreRef:
+        name: ""
+        kind: ClusterSecretStore

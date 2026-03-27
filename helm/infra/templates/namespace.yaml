@@ -1,0 +1,10 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace.name | default "neio-leasingops" }}
+  labels:
+    {{- toYaml .Values.namespace.labels | nindent 4 }}
+    app.kubernetes.io/name: neio-leasingops-infra
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

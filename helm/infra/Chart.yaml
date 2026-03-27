@@ -1,0 +1,60 @@
+apiVersion: v2
+name: neio-leasingops-infra
+version: 1.0.0
+appVersion: "1.0.0"
+description: >
+  NeIO LeasingOps Infrastructure — operators and shared services required before
+  deploying the application chart. RSDP will inspect this chart to understand what
+  operators/infra to pre-install on the target cluster.
+type: application
+
+keywords:
+  - infrastructure
+  - operators
+  - postgresql
+  - redis
+  - minio
+  - pgvector
+  - openshift
+  - red-hat
+
+home: https://codvo.ai/leasingops
+sources:
+  - https://github.com/codvo-ai/neio-leasingops-quickstart
+
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai
+    url: https://codvo.ai
+
+annotations:
+  openshift.io/provider-display-name: CODVO.AI
+  com.redhat.openshift.versions: "v4.12-v4.16"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: infrastructure
+  # RSDP note: this chart declares infra dependencies.
+  # RSDP will pre-install operators from this chart before deploying neio-leasingops-app.
+  rsdp.redhat.io/infra-only: "true"
+
+# Infra dependencies — RSDP will typically pre-install these operators on the cluster.
+# When deploying manually, run: make infra
+dependencies:
+  - name: postgresql
+    version: "13.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+    alias: postgresql
+
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+    alias: redis
+
+  - name: minio
+    version: "12.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: minio.enabled
+    alias: minio
+
+kubeVersion: ">=1.25.0-0"

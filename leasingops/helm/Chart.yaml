@@ -1,0 +1,60 @@
+apiVersion: v2
+name: neio-leasingops
+version: 1.0.0
+appVersion: "1.0.0"
+description: NeIO LeasingOps - AI-powered Aircraft Leasing Operations Platform
+type: application
+
+keywords:
+  - ai
+  - leasingops
+  - aircraft-leasing
+  - openshift
+  - red-hat
+  - neio
+  - enterprise-ai
+  - llm
+  - rag
+
+home: https://codvo.ai/leasingops
+sources:
+  - https://github.com/codvo-ai/neio-leasingops
+
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai
+    url: https://codvo.ai
+
+annotations:
+  # OpenShift certification
+  openshift.io/provider-display-name: CODVO.AI
+  com.redhat.openshift.versions: "v4.12-v4.15"
+  com.redhat.delivery.operator.bundle: "true"
+  com.redhat.delivery.backport: "false"
+
+  # Artifact Hub annotations
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/containsSecurityUpdates: "false"
+
+dependencies:
+  - name: postgresql
+    version: "13.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: database.internal.enabled
+
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: cache.internal.enabled
+
+  - name: minio
+    version: "12.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: storage.internal.enabled
+
+kubeVersion: ">=1.25.0-0"
+
+icon: https://codvo.ai/assets/leasingops-icon.png

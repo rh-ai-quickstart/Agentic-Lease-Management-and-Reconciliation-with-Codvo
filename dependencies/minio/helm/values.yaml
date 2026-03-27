@@ -1,0 +1,135 @@
+# Default values for MinIO
+replicaCount: 1
+
+image:
+  repository: minio/minio
+  tag: RELEASE.2024-01-16T16-07-38Z
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# MinIO configuration
+minio:
+  # Root user (access key)
+  rootUser: minio
+  # Root password (secret key) - minimum 8 characters
+  rootPassword: ""
+  # Existing secret with root-user and root-password keys
+  existingSecret: ""
+  # Default buckets to create on startup (comma-separated)
+  defaultBuckets: "documents,uploads"
+  # Console port
+  consolePort: 9001
+  # Region
+  region: us-east-1
+
+# Service configuration
+service:
+  type: ClusterIP
+  apiPort: 9000
+  consolePort: 9001
+  annotations: {}
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+
+# Liveness probe
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+  successThreshold: 1
+
+# Readiness probe
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+  successThreshold: 1
+
+# Extra environment variables
+extraEnv: []
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: minio.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Console ingress (separate from API)
+consoleIngress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: minio-console.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Metrics
+metrics:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s

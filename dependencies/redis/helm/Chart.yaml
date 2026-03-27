@@ -1,0 +1,17 @@
+apiVersion: v2
+name: redis
+description: Redis in-memory data store for caching and message brokering
+type: application
+version: 0.1.0
+appVersion: "7.2"
+keywords:
+  - redis
+  - cache
+  - key-value
+  - in-memory
+home: https://redis.io
+sources:
+  - https://github.com/redis/redis
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai

@@ -1,0 +1,106 @@
+================================================================================
+  NeIO OpenShift AI Integration - Deployment Complete
+================================================================================
+
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named: {{ .Release.Name }}
+Namespace: {{ .Values.global.namespace }}
+
+================================================================================
+  DEPLOYED COMPONENTS
+================================================================================
+
+{{- if .Values.llmd.enabled }}
+LLM-D Controller:
+  - Service: {{ .Values.llmd.name }}.{{ .Values.global.namespace }}.svc.cluster.local:8080
+  - Replicas: {{ .Values.llmd.replicas }}
+  - Routing Strategy: {{ .Values.llmd.modelRouting.strategy }}
+{{- end }}
+
+{{- if .Values.vllm.enabled }}
+vLLM Inference Server:
+  - Model: {{ .Values.vllm.model.name }}
+  - Service: vllm-{{ .Values.vllm.model.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.vllm.serving.port }}
+  - GPU Count: {{ index .Values.vllm.resources.requests "nvidia.com/gpu" }}
+  - Tensor Parallelism: {{ .Values.vllm.tensorParallelism }}
+
+  To get the external URL:
+    export ROUTE_HOST=$(oc get route vllm-{{ .Values.vllm.model.name }} -n {{ .Values.global.namespace }} -o jsonpath='{.spec.host}')
+    echo "https://$ROUTE_HOST"
+{{- end }}
+
+{{- if .Values.llamaStack.enabled }}
+Llama Stack (Guardrails):
+  - Service: {{ .Values.llamaStack.name }}.{{ .Values.global.namespace }}.svc.cluster.local:8080
+  - Guardrails: {{ if .Values.llamaStack.guardrails.enabled }}Enabled{{ else }}Disabled{{ end }}
+  - Content Safety: {{ if .Values.llamaStack.guardrails.contentSafety.enabled }}Enabled{{ else }}Disabled{{ end }}
+{{- end }}
+
+================================================================================
+  QUICK START
+================================================================================
+
+1. Verify all pods are running:
+   oc get pods -n {{ .Values.global.namespace }}
+
+2. Check the logs:
+{{- if .Values.llmd.enabled }}
+   oc logs -f deployment/{{ .Values.llmd.name }} -n {{ .Values.global.namespace }}
+{{- end }}
+{{- if .Values.vllm.enabled }}
+   oc logs -f deployment/{{ .Values.vllm.model.name }}-predictor -n {{ .Values.global.namespace }}
+{{- end }}
+
+3. Test the inference endpoint:
+{{- if .Values.vllm.enabled }}
+   curl -X POST "https://$ROUTE_HOST/v1/chat/completions" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "{{ .Values.vllm.model.path }}",
+       "messages": [{"role": "user", "content": "Hello, how can you help with lease management?"}],
+       "max_tokens": 100
+     }'
+{{- end }}
+
+================================================================================
+  MONITORING
+================================================================================
+
+{{- if .Values.monitoring.enabled }}
+Prometheus metrics are available at:
+  - llm-d: {{ .Values.llmd.name }}.{{ .Values.global.namespace }}.svc.cluster.local:8081/metrics
+{{- if .Values.vllm.enabled }}
+  - vLLM: vllm-{{ .Values.vllm.model.name }}.{{ .Values.global.namespace }}.svc.cluster.local:8080/metrics
+{{- end }}
+
+To view in OpenShift Console:
+  1. Navigate to Observe > Metrics
+  2. Query for metrics with prefix: llm_, vllm_, or inference_
+{{- else }}
+Monitoring is disabled. Enable it in values.yaml to get Prometheus metrics.
+{{- end }}
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+If pods are pending due to GPU scheduling:
+  oc describe pod -l app={{ .Values.vllm.model.name }} -n {{ .Values.global.namespace }}
+
+Check GPU availability:
+  oc get nodes -l nvidia.com/gpu.present=true
+
+View model loading progress:
+  oc logs -f deployment/{{ .Values.vllm.model.name }}-predictor -n {{ .Values.global.namespace }} -c kserve-container
+
+================================================================================
+  DOCUMENTATION
+================================================================================
+
+For more information, visit:
+- Red Hat OpenShift AI: https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed
+- vLLM Documentation: https://docs.vllm.ai
+- Llama Stack: https://github.com/meta-llama/llama-stack
+
+================================================================================

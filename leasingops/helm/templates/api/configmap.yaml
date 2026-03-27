@@ -1,0 +1,245 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-api-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  # =============================================================================
+  # UIP Solution Configuration
+  # =============================================================================
+  UIP_SOLUTIONS: {{ .Values.global.solutions | default "core,leasingops" | quote }}
+
+  # =============================================================================
+  # Database Configuration
+  # =============================================================================
+  {{- $dbHost := "" }}
+  {{- if and .Values.database .Values.database.external .Values.database.external.host }}
+  {{- $dbHost = .Values.database.external.host }}
+  {{- else if and .Values.database .Values.database.host }}
+  {{- $dbHost = .Values.database.host }}
+  {{- else }}
+  {{- $dbHost = printf "%s-postgresql" (include "neio-leasingops.fullname" .) }}
+  {{- end }}
+  POSTGRES_HOST: {{ $dbHost | quote }}
+  POSTGRES_PORT: {{ ((.Values.database).external).port | default ((.Values.database).port) | default "5432" | quote }}
+  POSTGRES_DB: {{ ((.Values.database).external).name | default ((.Values.database).name) | default "leasingops" | quote }}
+
+  # =============================================================================
+  # Redis/Cache Configuration
+  # =============================================================================
+  {{- $redisHost := "" }}
+  {{- if and .Values.cache .Values.cache.external .Values.cache.external.host }}
+  {{- $redisHost = .Values.cache.external.host }}
+  {{- else if and .Values.cache .Values.cache.host }}
+  {{- $redisHost = .Values.cache.host }}
+  {{- else }}
+  {{- $redisHost = printf "%s-redis-master" (include "neio-leasingops.fullname" .) }}
+  {{- end }}
+  REDIS_HOST: {{ $redisHost | quote }}
+  REDIS_PORT: {{ ((.Values.cache).external).port | default ((.Values.cache).port) | default "6379" | quote }}
+  REDIS_DB: {{ ((.Values.cache).db) | default "0" | quote }}
+
+  # =============================================================================
+  # Vector Store Configuration
+  # =============================================================================
+  {{- $vectorProvider := ((.Values.vectorStore).provider) | default "pgvector" }}
+  {{- if and .Values.vectorStore .Values.vectorStore.qdrant .Values.vectorStore.qdrant.external .Values.vectorStore.qdrant.external.host }}
+  QDRANT_HOST: {{ .Values.vectorStore.qdrant.external.host | quote }}
+  QDRANT_PORT: {{ .Values.vectorStore.qdrant.external.port | default "6333" | quote }}
+  {{- else }}
+  QDRANT_HOST: {{ ((.Values.vectorStore).host) | default "qdrant" | quote }}
+  QDRANT_PORT: {{ ((.Values.vectorStore).port) | default "6333" | quote }}
+  {{- end }}
+  QDRANT_GRPC_PORT: {{ ((.Values.vectorStore).grpcPort) | default "6334" | quote }}
+  QDRANT_COLLECTION_PREFIX: {{ ((.Values.vectorStore).collectionPrefix) | default "leasingops" | quote }}
+  VECTOR_STORE_PROVIDER: {{ $vectorProvider | quote }}
+
+  # =============================================================================
+  # OpenShift AI Configuration
+  # =============================================================================
+  {{- $openshiftAIEnabled := false }}
+  {{- if and .Values.ai .Values.ai.openshiftAI .Values.ai.openshiftAI.enabled }}
+  {{- $openshiftAIEnabled = .Values.ai.openshiftAI.enabled }}
+  {{- else if and .Values.openshiftAI .Values.openshiftAI.enabled }}
+  {{- $openshiftAIEnabled = .Values.openshiftAI.enabled }}
+  {{- end }}
+  OPENSHIFT_AI_ENABLED: {{ $openshiftAIEnabled | quote }}
+  {{- if $openshiftAIEnabled }}
+  {{- $osaiConfig := .Values.ai.openshiftAI | default .Values.openshiftAI }}
+  OPENSHIFT_AI_INFERENCE_URL: {{ $osaiConfig.endpoint | default $osaiConfig.inferenceUrl | quote }}
+  OPENSHIFT_AI_MODEL_NAME: {{ $osaiConfig.modelName | default "llama-3.1-8b-instruct" | quote }}
+  OPENSHIFT_AI_EMBEDDING_MODEL: {{ $osaiConfig.embeddingModel | default "nomic-embed-text" | quote }}
+  OPENSHIFT_AI_MAX_TOKENS: {{ $osaiConfig.maxTokens | default "4096" | quote }}
+  OPENSHIFT_AI_TEMPERATURE: {{ $osaiConfig.temperature | default "0.1" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # RSDP LLM Configuration (llm.url / llm.model injected by RSDP platform)
+  # =============================================================================
+  {{- if .Values.llm }}
+  LLM_URL: {{ .Values.llm.url | default "" | quote }}
+  LLM_MODEL: {{ .Values.llm.model | default "" | quote }}
+  LLM_MAX_TOKENS: {{ .Values.llm.maxTokens | default "4096" | quote }}
+  LLM_TEMPERATURE: {{ .Values.llm.temperature | default "0.7" | quote }}
+  LLM_API_PATH: {{ .Values.llm.apiPath | default "/v1/chat/completions" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # AI/LLM Configuration
+  # =============================================================================
+  {{- if .Values.ai }}
+  AI_PROVIDER: {{ .Values.ai.provider | default "claude" | quote }}
+  {{- if and .Values.ai.claude .Values.ai.claude.enabled }}
+  CLAUDE_MODEL: {{ .Values.ai.claude.model | default "claude-sonnet-4-20250514" | quote }}
+  CLAUDE_MAX_TOKENS: {{ .Values.ai.claude.maxTokens | default "4096" | quote }}
+  CLAUDE_TEMPERATURE: {{ .Values.ai.claude.temperature | default "0.7" | quote }}
+  {{- end }}
+  {{- if .Values.ai.embeddings }}
+  EMBEDDINGS_PROVIDER: {{ .Values.ai.embeddings.provider | default "voyage" | quote }}
+  EMBEDDINGS_MODEL: {{ .Values.ai.embeddings.model | default "voyage-2" | quote }}
+  EMBEDDINGS_DIMENSION: {{ .Values.ai.embeddings.dimension | default "1024" | quote }}
+  {{- end }}
+  {{- if .Values.ai.rag }}
+  RAG_ENABLED: {{ .Values.ai.rag.enabled | default "true" | quote }}
+  RAG_CHUNK_SIZE: {{ .Values.ai.rag.chunkSize | default "1000" | quote }}
+  RAG_CHUNK_OVERLAP: {{ .Values.ai.rag.chunkOverlap | default "200" | quote }}
+  RAG_TOP_K: {{ .Values.ai.rag.topK | default "10" | quote }}
+  {{- if .Values.ai.rag.reranking }}
+  RAG_RERANKING_ENABLED: {{ .Values.ai.rag.reranking.enabled | default "true" | quote }}
+  RAG_RERANKING_MODEL: {{ .Values.ai.rag.reranking.model | default "rerank-2" | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+
+  # =============================================================================
+  # Agent Configuration (legacy support)
+  # =============================================================================
+  {{- if .Values.agents }}
+  {{- if .Values.agents.queryRouter }}
+  QUERY_ROUTER_ENABLED: {{ .Values.agents.queryRouter.enabled | default "true" | quote }}
+  QUERY_ROUTER_MODEL: {{ .Values.agents.queryRouter.model | default "claude-sonnet-4-20250514" | quote }}
+  QUERY_ROUTER_TEMPERATURE: {{ .Values.agents.queryRouter.temperature | default "0.0" | quote }}
+  {{- end }}
+  {{- if .Values.agents.sqlWriter }}
+  SQL_WRITER_ENABLED: {{ .Values.agents.sqlWriter.enabled | default "true" | quote }}
+  SQL_WRITER_MODEL: {{ .Values.agents.sqlWriter.model | default "claude-sonnet-4-20250514" | quote }}
+  SQL_WRITER_MAX_RETRIES: {{ .Values.agents.sqlWriter.maxRetries | default "3" | quote }}
+  {{- end }}
+  {{- if .Values.agents.documentRetriever }}
+  DOCUMENT_RETRIEVER_ENABLED: {{ .Values.agents.documentRetriever.enabled | default "true" | quote }}
+  DOCUMENT_RETRIEVER_TOP_K: {{ .Values.agents.documentRetriever.topK | default "10" | quote }}
+  DOCUMENT_RETRIEVER_RERANK_ENABLED: {{ .Values.agents.documentRetriever.rerankEnabled | default "true" | quote }}
+  {{- end }}
+  {{- if .Values.agents.synthesizer }}
+  SYNTHESIZER_MODEL: {{ .Values.agents.synthesizer.model | default "claude-sonnet-4-20250514" | quote }}
+  SYNTHESIZER_MAX_TOKENS: {{ .Values.agents.synthesizer.maxTokens | default "4096" | quote }}
+  {{- end }}
+  {{- end }}
+
+  # =============================================================================
+  # Feature Flags
+  # =============================================================================
+  {{- if .Values.featureFlags }}
+  QUERY_ROUTING_ENABLED: {{ .Values.featureFlags.queryRoutingEnabled | default "true" | quote }}
+  TIER1_ENABLED: {{ .Values.featureFlags.tier1Enabled | default "true" | quote }}
+  TIER2_ENABLED: {{ .Values.featureFlags.tier2Enabled | default "true" | quote }}
+  TIER_FALLBACK_ENABLED: {{ .Values.featureFlags.tierFallbackEnabled | default "true" | quote }}
+  QUERY_REWRITING_ENABLED: {{ .Values.featureFlags.queryRewritingEnabled | default "true" | quote }}
+  HYBRID_SEARCH_ENABLED: {{ .Values.featureFlags.hybridSearchEnabled | default "true" | quote }}
+  CONTEXT_SUMMARIZATION_ENABLED: {{ .Values.featureFlags.contextSummarizationEnabled | default "true" | quote }}
+  SPECULATIVE_TIER1_ENABLED: {{ .Values.featureFlags.speculativeTier1Enabled | default "true" | quote }}
+  CONTEXT_PRELOAD_ENABLED: {{ .Values.featureFlags.contextPreloadEnabled | default "true" | quote }}
+  UI_STREAMING_ENABLED: {{ .Values.featureFlags.uiStreamingEnabled | default "true" | quote }}
+  PARALLEL_AGENT_EXECUTION: {{ .Values.featureFlags.parallelAgentExecution | default "true" | quote }}
+  LEASE_ANALYSIS_ENABLED: {{ .Values.featureFlags.leaseAnalysisEnabled | default "true" | quote }}
+  AIRCRAFT_VALUATION_ENABLED: {{ .Values.featureFlags.aircraftValuationEnabled | default "true" | quote }}
+  MAINTENANCE_FORECAST_ENABLED: {{ .Values.featureFlags.maintenanceForecastEnabled | default "true" | quote }}
+  CONTRACT_EXTRACTION_ENABLED: {{ .Values.featureFlags.contractExtractionEnabled | default "true" | quote }}
+  {{- else }}
+  # Default feature flags from api.env
+  {{- if .Values.api.env }}
+  QUERY_ROUTING_ENABLED: {{ .Values.api.env.QUERY_ROUTING_ENABLED | default "true" | quote }}
+  RAG_ENABLED: {{ .Values.api.env.RAG_ENABLED | default "true" | quote }}
+  HYBRID_SEARCH_ENABLED: {{ .Values.api.env.HYBRID_SEARCH_ENABLED | default "true" | quote }}
+  {{- end }}
+  {{- end }}
+
+  # =============================================================================
+  # Observability Configuration
+  # =============================================================================
+  {{- if .Values.monitoring }}
+  METRICS_ENABLED: {{ ((.Values.monitoring).prometheus).enabled | default "true" | quote }}
+  {{- if .Values.monitoring.opentelemetry }}
+  TRACING_ENABLED: {{ .Values.monitoring.opentelemetry.enabled | default "false" | quote }}
+  {{- if .Values.monitoring.opentelemetry.enabled }}
+  OTEL_ENDPOINT: {{ .Values.monitoring.opentelemetry.endpoint | quote }}
+  OTEL_SERVICE_NAME: {{ .Values.monitoring.opentelemetry.serviceName | default "neio-leasingops" | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.monitoring.langfuse }}
+  {{- if .Values.monitoring.langfuse.enabled }}
+  LANGFUSE_ENABLED: "true"
+  LANGFUSE_HOST: {{ .Values.monitoring.langfuse.host | quote }}
+  {{- end }}
+  {{- end }}
+  {{- else if .Values.observability }}
+  METRICS_ENABLED: {{ ((.Values.observability).metrics).enabled | default "true" | quote }}
+  TRACING_ENABLED: {{ ((.Values.observability).tracing).enabled | default "false" | quote }}
+  {{- if and .Values.observability.langfuse .Values.observability.langfuse.enabled }}
+  LANGFUSE_ENABLED: "true"
+  LANGFUSE_HOST: {{ .Values.observability.langfuse.host | quote }}
+  {{- end }}
+  {{- end }}
+
+  # =============================================================================
+  # CORS and Security Configuration
+  # =============================================================================
+  {{- if and .Values.security .Values.security.cors }}
+  ALLOWED_ORIGINS: {{ .Values.security.cors.allowedOrigins | default "*" | quote }}
+  ALLOWED_METHODS: {{ .Values.security.cors.allowedMethods | default "GET,POST,PUT,DELETE,OPTIONS" | quote }}
+  ALLOWED_HEADERS: {{ .Values.security.cors.allowedHeaders | default "*" | quote }}
+  {{- else if .Values.api.env }}
+  ALLOWED_ORIGINS: {{ .Values.api.env.ALLOWED_ORIGINS | default "*" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # Rate Limiting
+  # =============================================================================
+  {{- if and .Values.security .Values.security.rateLimit }}
+  RATE_LIMIT_ENABLED: {{ .Values.security.rateLimit.enabled | default "true" | quote }}
+  RATE_LIMIT_REQUESTS_PER_MINUTE: {{ .Values.security.rateLimit.requestsPerMinute | default "60" | quote }}
+  RATE_LIMIT_BURST: {{ .Values.security.rateLimit.burst | default "100" | quote }}
+  {{- else if .Values.api.env }}
+  RATE_LIMIT_ENABLED: {{ .Values.api.env.RATE_LIMIT_ENABLED | default "true" | quote }}
+  RATE_LIMIT_REQUESTS_PER_MINUTE: {{ .Values.api.env.RATE_LIMIT_REQUESTS_PER_MINUTE | default "60" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # Worker Queue Configuration
+  # =============================================================================
+  {{- if .Values.worker }}
+  WORKER_QUEUE_NAME: {{ ((.Values.worker).queue).name | default ((.Values.worker).env).WORKER_QUEUE | default "default,documents,ai" | quote }}
+  WORKER_CONCURRENCY: {{ ((.Values.worker).concurrency) | default ((.Values.worker).env).WORKER_CONCURRENCY | default "4" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # Logging Configuration
+  # =============================================================================
+  {{- if .Values.logging }}
+  LOG_LEVEL: {{ .Values.logging.level | default "info" | quote }}
+  LOG_FORMAT: {{ .Values.logging.format | default "json" | quote }}
+  {{- end }}
+
+  # =============================================================================
+  # Custom Configuration (from values.yaml)
+  # =============================================================================
+  {{- if .Values.api.extraConfig }}
+  {{- range $key, $value := .Values.api.extraConfig }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

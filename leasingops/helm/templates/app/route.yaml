@@ -1,0 +1,47 @@
+{{- if .Values.app.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-app
+  namespace: {{ ((.Values.namespace).name) | default .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+  {{- with .Values.app.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.app.route.host }}
+  host: {{ .Values.app.route.host }}
+  {{- end }}
+  {{- if .Values.app.route.path }}
+  path: {{ .Values.app.route.path }}
+  {{- end }}
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    {{- if .Values.app.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ .Values.app.route.tls.insecureEdgeTerminationPolicy }}
+    {{- else }}
+    insecureEdgeTerminationPolicy: Redirect
+    {{- end }}
+    {{- if .Values.app.route.tls.certificate }}
+    certificate: |
+      {{- .Values.app.route.tls.certificate | nindent 6 }}
+    {{- end }}
+    {{- if .Values.app.route.tls.key }}
+    key: |
+      {{- .Values.app.route.tls.key | nindent 6 }}
+    {{- end }}
+    {{- if .Values.app.route.tls.caCertificate }}
+    caCertificate: |
+      {{- .Values.app.route.tls.caCertificate | nindent 6 }}
+    {{- end }}
+  to:
+    kind: Service
+    name: {{ include "neio-leasingops.fullname" . }}-app
+    weight: 100
+  wildcardPolicy: None
+{{- end }}

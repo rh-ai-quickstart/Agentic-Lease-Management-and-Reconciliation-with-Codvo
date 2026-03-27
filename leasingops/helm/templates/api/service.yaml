@@ -1,0 +1,24 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.api.service.port | default 8000 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "neio-leasingops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+{{- end }}

@@ -1,0 +1,281 @@
+name: Release Helm Charts
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  release:
+    name: Package and Release Charts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Update chart versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update leasingops chart version
+          sed -i "s/^version:.*/version: $VERSION/" leasingops/helm/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" leasingops/helm/Chart.yaml
+
+          # Update openshift-ai chart version
+          sed -i "s/^version:.*/version: $VERSION/" openshift-ai/helm/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" openshift-ai/helm/Chart.yaml
+
+          # Update pgvector chart version
+          sed -i "s/^version:.*/version: $VERSION/" dependencies/pgvector/helm/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" dependencies/pgvector/helm/Chart.yaml
+
+      - name: Update chart dependencies
+        run: |
+          helm dependency update ./leasingops/helm || true
+          helm dependency update ./openshift-ai/helm || true
+          helm dependency update ./dependencies/pgvector/helm || true
+
+      - name: Lint charts before packaging
+        run: |
+          helm lint ./leasingops/helm --strict
+          helm lint ./openshift-ai/helm --strict
+          helm lint ./dependencies/pgvector/helm --strict
+
+      - name: Create packages directory
+        run: mkdir -p .cr-release-packages
+
+      - name: Package Helm charts
+        run: |
+          helm package ./leasingops/helm -d .cr-release-packages
+          helm package ./openshift-ai/helm -d .cr-release-packages
+          helm package ./dependencies/pgvector/helm -d .cr-release-packages
+
+          echo "Packaged charts:"
+          ls -la .cr-release-packages/
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, generating full changelog"
+            COMMITS=$(git log --oneline --no-merges | head -50)
+          else
+            echo "Generating changelog from $PREV_TAG to ${{ github.ref_name }}"
+            COMMITS=$(git log --oneline --no-merges $PREV_TAG..HEAD)
+          fi
+
+          # Create changelog
+          cat > CHANGELOG.md << EOF
+          # Release ${{ github.ref_name }}
+
+          ## Charts Included
+
+          | Chart | Version |
+          |-------|---------|
+          | neio-leasingops | ${{ steps.version.outputs.version }} |
+          | neio-openshift-ai | ${{ steps.version.outputs.version }} |
+          | neio-pgvector | ${{ steps.version.outputs.version }} |
+
+          ## Installation
+
+          \`\`\`bash
+          # Add the Helm repository
+          helm repo add neio-leasingops https://${{ github.repository_owner }}.github.io/$(echo ${{ github.repository }} | cut -d'/' -f2)
+          helm repo update
+
+          # Install leasingops
+          helm install leasingops neio-leasingops/neio-leasingops --version ${{ steps.version.outputs.version }}
+
+          # Install openshift-ai
+          helm install openshift-ai neio-leasingops/neio-openshift-ai --version ${{ steps.version.outputs.version }}
+          \`\`\`
+
+          ## Changes
+
+          $COMMITS
+
+          ## Assets
+
+          - \`neio-leasingops-${{ steps.version.outputs.version }}.tgz\` - Main LeasingOps chart
+          - \`neio-openshift-ai-${{ steps.version.outputs.version }}.tgz\` - OpenShift AI integration chart
+          - \`neio-pgvector-${{ steps.version.outputs.version }}.tgz\` - PGVector dependency chart
+
+          EOF
+
+          cat CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Release ${{ github.ref_name }}"
+          body_path: CHANGELOG.md
+          files: |
+            .cr-release-packages/*.tgz
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-pages:
+    name: Publish to GitHub Pages
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Create gh-pages directory if not exists
+        run: |
+          if [ ! -d "gh-pages" ]; then
+            mkdir -p gh-pages
+          fi
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: ${{ github.ref_name }}
+          fileName: '*.tgz'
+          out-file-path: gh-pages
+
+      - name: Generate Helm repository index
+        run: |
+          cd gh-pages
+
+          # Create or update index.yaml
+          if [ -f index.yaml ]; then
+            helm repo index . --merge index.yaml --url https://${{ github.repository_owner }}.github.io/$(echo ${{ github.repository }} | cut -d'/' -f2)
+          else
+            helm repo index . --url https://${{ github.repository_owner }}.github.io/$(echo ${{ github.repository }} | cut -d'/' -f2)
+          fi
+
+          # Create landing page
+          cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>NeIO LeasingOps Helm Charts</title>
+              <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; }
+                  h1 { color: #333; }
+                  pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+                  .charts { margin-top: 2rem; }
+                  .chart { background: #fff; border: 1px solid #ddd; padding: 1rem; margin: 1rem 0; border-radius: 4px; }
+                  .chart h3 { margin-top: 0; color: #0066cc; }
+              </style>
+          </head>
+          <body>
+              <h1>NeIO LeasingOps Helm Charts</h1>
+              <p>Helm charts for deploying NeIO LeasingOps on OpenShift and Kubernetes.</p>
+
+              <h2>Quick Start</h2>
+              <pre>
+          # Add the Helm repository
+          helm repo add neio-leasingops https://codvo-ai.github.io/neio-leasingops-quickstart
+          helm repo update
+
+          # Search available charts
+          helm search repo neio-leasingops
+
+          # Install a chart
+          helm install leasingops neio-leasingops/neio-leasingops
+              </pre>
+
+              <div class="charts">
+                  <h2>Available Charts</h2>
+                  <div class="chart">
+                      <h3>neio-leasingops</h3>
+                      <p>Main LeasingOps application chart with AI-powered aircraft leasing operations platform.</p>
+                  </div>
+                  <div class="chart">
+                      <h3>neio-openshift-ai</h3>
+                      <p>OpenShift AI (RHOAI) integration for model serving and inference.</p>
+                  </div>
+                  <div class="chart">
+                      <h3>neio-pgvector</h3>
+                      <p>PostgreSQL with pgvector extension for vector storage.</p>
+                  </div>
+              </div>
+
+              <h2>Documentation</h2>
+              <p>See the <a href="https://github.com/codvo-ai/neio-leasingops-quickstart">GitHub repository</a> for full documentation.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          keep_files: true
+
+  notify:
+    name: Notify Release
+    needs: [release, publish-pages]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Release Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Job:** ${{ needs.release.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pages Job:** ${{ needs.publish-pages.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Repository" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "helm repo add neio-leasingops https://${{ github.repository_owner }}.github.io/$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_STEP_SUMMARY
+          echo "helm repo update" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

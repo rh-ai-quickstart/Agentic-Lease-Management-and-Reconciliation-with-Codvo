@@ -1,0 +1,28 @@
+apiVersion: v2
+name: neio-openshift-ai
+description: Red Hat OpenShift AI integration for NeIO LeasingOps
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - openshift-ai
+  - llm
+  - vllm
+  - llm-d
+  - llama-stack
+  - model-serving
+  - neio
+  - leasingops
+
+home: https://github.com/codvo/neio-leasingops-quickstart
+
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai
+
+dependencies: []
+
+annotations:
+  category: AI/ML
+  licenses: Apache-2.0

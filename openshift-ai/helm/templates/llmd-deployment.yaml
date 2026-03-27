@@ -1,0 +1,218 @@
+{{- if .Values.llmd.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.llmd.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llmd.name }}
+    app.kubernetes.io/name: {{ .Values.llmd.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: llm-controller
+    app.kubernetes.io/part-of: neio-openshift-ai
+spec:
+  replicas: {{ .Values.llmd.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.llmd.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.llmd.name }}
+        app.kubernetes.io/name: {{ .Values.llmd.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.llmd.name }}
+      securityContext:
+        {{- toYaml .Values.security.podSecurityContext | nindent 8 }}
+      containers:
+        - name: llmd-controller
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.llmd.image.repository }}:{{ .Values.llmd.image.tag }}"
+          imagePullPolicy: {{ .Values.llmd.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.security.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+            - name: metrics
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: LLMD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LLMD_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LLMD_ROUTING_STRATEGY
+              value: {{ .Values.llmd.modelRouting.strategy | quote }}
+            - name: LLMD_HEALTH_CHECK_INTERVAL
+              value: {{ .Values.llmd.modelRouting.healthCheckInterval | quote }}
+            - name: LLMD_REQUEST_TIMEOUT
+              value: {{ .Values.llmd.modelRouting.timeout | quote }}
+            - name: LLMD_LOG_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/llmd
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.llmd.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.llmd.name }}-config
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.llmd.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.llmd.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.llmd.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.llmd.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llmd.name }}
+    app.kubernetes.io/name: {{ .Values.llmd.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 9090
+      targetPort: grpc
+      protocol: TCP
+    - name: metrics
+      port: 8081
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: {{ .Values.llmd.name }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.llmd.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llmd.name }}
+    app.kubernetes.io/name: {{ .Values.llmd.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.llmd.name }}
+  namespace: {{ .Values.global.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices", "servingruntimes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.llmd.name }}
+  namespace: {{ .Values.global.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.llmd.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.llmd.name }}
+    namespace: {{ .Values.global.namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.llmd.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.llmd.name }}
+    app.kubernetes.io/name: {{ .Values.llmd.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  config.yaml: |
+    # llm-d Controller Configuration
+    controller:
+      name: {{ .Values.llmd.name }}
+      namespace: {{ .Values.global.namespace }}
+
+    # Model routing configuration
+    routing:
+      enabled: {{ .Values.llmd.modelRouting.enabled }}
+      strategy: {{ .Values.llmd.modelRouting.strategy }}
+      healthCheck:
+        interval: {{ .Values.llmd.modelRouting.healthCheckInterval }}
+        timeout: {{ .Values.llmd.modelRouting.timeout }}
+
+    # Registered models
+    models:
+      {{- range .Values.llmd.models }}
+      - name: {{ .name }}
+        endpoint: {{ .endpoint }}
+        weight: {{ .weight }}
+      {{- end }}
+
+    # Metrics configuration
+    metrics:
+      enabled: true
+      port: 8081
+      path: /metrics
+
+    # Logging configuration
+    logging:
+      level: info
+      format: json
+{{- end }}

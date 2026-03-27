@@ -1,0 +1,421 @@
+# NeIO LeasingOps - Air-Gapped Deployment Values
+# Use with: helm install -f values.yaml -f values-openshift.yaml -f values-airgapped.yaml
+#
+# This configuration is designed for disconnected/air-gapped environments where:
+# - No external internet access is available
+# - All container images must come from internal registry mirrors
+# - All AI models must be served locally
+# - No external API calls (Claude, OpenAI, etc.)
+
+# =============================================================================
+# GLOBAL AIR-GAPPED SETTINGS
+# =============================================================================
+global:
+  # Internal registry mirror (REQUIRED - update with your registry)
+  # Examples:
+  #   - registry.internal.example.com
+  #   - mirror.disconnected.local:5000
+  #   - quay.internal.corp.net/codvo-neio
+  imageRegistry: registry.internal.example.com/codvo-neio
+
+  # Image pull secret for internal registry
+  pullSecret: internal-registry-pull-secret
+
+  # Always use IfNotPresent to avoid pulling from external
+  imagePullPolicy: IfNotPresent
+
+  # Mark as air-gapped environment
+  environment: airgapped
+
+  # OpenShift settings (typically enabled in air-gapped)
+  openshift:
+    enabled: true
+    route:
+      enabled: true
+      tls:
+        termination: edge
+
+# =============================================================================
+# APPLICATION FRONTEND - Air-Gapped Configuration
+# =============================================================================
+app:
+  image:
+    # Use internal registry mirror
+    repository: leasingops-app
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Environment variables - no external URLs
+  env:
+    # All URLs point to internal services
+    NEXT_PUBLIC_API_URL: "https://api-leasingops.apps.internal.example.com"
+    NEXT_PUBLIC_WS_URL: "wss://api-leasingops.apps.internal.example.com"
+    # Disable external analytics/telemetry
+    NEXT_TELEMETRY_DISABLED: "1"
+    DISABLE_EXTERNAL_ANALYTICS: "true"
+
+# =============================================================================
+# API SERVER - Air-Gapped Configuration
+# =============================================================================
+api:
+  image:
+    repository: leasingops-api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Environment variables - disable all external calls
+  env:
+    ENVIRONMENT: airgapped
+    LOG_LEVEL: info
+
+    # Disable external API calls
+    DISABLE_EXTERNAL_API_CALLS: "true"
+    EXTERNAL_WEB_SEARCH_ENABLED: "false"
+    TELEMETRY_ENABLED: "false"
+
+    # Use local AI models only
+    AI_PROVIDER: local
+    USE_LOCAL_MODELS: "true"
+
+    # Local model serving endpoint (LLMD or vLLM)
+    LOCAL_LLM_ENDPOINT: "http://llmd:8080"
+    LOCAL_EMBEDDING_ENDPOINT: "http://embeddings:8080"
+
+    # Disable cloud providers
+    ANTHROPIC_API_KEY: ""
+    OPENAI_API_KEY: ""
+    VOYAGE_API_KEY: ""
+
+# =============================================================================
+# BACKGROUND WORKER - Air-Gapped Configuration
+# =============================================================================
+worker:
+  image:
+    repository: leasingops-worker
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  env:
+    # Disable external calls in worker
+    DISABLE_EXTERNAL_API_CALLS: "true"
+    USE_LOCAL_MODELS: "true"
+
+# =============================================================================
+# AI CONFIGURATION - Fully Local
+# =============================================================================
+ai:
+  # Use local model serving
+  provider: local
+
+  # Disable all external AI providers
+  claude:
+    enabled: false
+
+  litellm:
+    enabled: false
+
+  # OpenShift AI can work in air-gapped with pre-loaded models
+  openshiftAI:
+    enabled: true
+    # Model must be pre-deployed in air-gapped OpenShift AI
+    modelName: "llama-3.1-8b-instruct"
+    # Endpoint within the cluster
+    endpoint: "http://llama-3-1-8b-instruct.ai-models.svc.cluster.local:8080"
+
+  # LLMD for local model serving
+  llmd:
+    enabled: true
+    image:
+      # Use internal registry
+      repository: llmd
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    # Pre-downloaded models (must be available in PVC)
+    models:
+      - name: llama-3.1-8b-instruct
+        quantization: q4_k_m
+        # Model files location (PVC mount)
+        modelPath: /models/llama-3.1-8b-instruct-q4_k_m.gguf
+    # Persistent volume for model files
+    persistence:
+      enabled: true
+      existingClaim: llmd-models-pvc
+      # Or create new PVC
+      # size: 50Gi
+      # storageClass: local-storage
+    resources:
+      requests:
+        memory: "8Gi"
+        cpu: "2000m"
+        # GPU if available
+        nvidia.com/gpu: "0"
+      limits:
+        memory: "16Gi"
+        cpu: "4000m"
+
+  # Llama Stack for local inference
+  llamaStack:
+    enabled: false
+    image:
+      repository: llama-stack
+      tag: "latest"
+      pullPolicy: IfNotPresent
+
+  # Local embeddings - REQUIRED for air-gapped RAG
+  embeddings:
+    provider: local
+    model: sentence-transformers/all-MiniLM-L6-v2
+    dimension: 384
+
+    local:
+      enabled: true
+      # Pre-downloaded model (must be in container or PVC)
+      modelPath: /models/all-MiniLM-L6-v2
+      image:
+        repository: text-embeddings-server
+        tag: "latest"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "500m"
+        limits:
+          memory: "4Gi"
+          cpu: "1000m"
+      persistence:
+        enabled: true
+        existingClaim: embeddings-models-pvc
+
+  # RAG configuration for air-gapped
+  rag:
+    enabled: true
+    # Disable external reranking API
+    reranking:
+      enabled: true
+      # Use local reranking model
+      provider: local
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      local:
+        enabled: true
+        modelPath: /models/ms-marco-MiniLM-L-6-v2
+
+# =============================================================================
+# DATABASE - Air-Gapped Configuration
+# =============================================================================
+database:
+  # Internal PostgreSQL (no cloud databases in air-gapped)
+  external:
+    enabled: false
+
+  internal:
+    enabled: true
+    image:
+      # Use internal registry
+      repository: postgres
+      tag: "15-alpine"
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: 50Gi
+      # Use local storage class for air-gapped
+      storageClass: local-storage
+
+# =============================================================================
+# VECTOR STORE - Air-Gapped Configuration
+# =============================================================================
+vectorStore:
+  # PGVector doesn't require external connections
+  provider: pgvector
+
+  pgvector:
+    enabled: true
+    dimension: 384  # Matches local embedding model
+
+  # If using Qdrant, must be internal
+  qdrant:
+    enabled: false
+    external:
+      enabled: false
+    internal:
+      enabled: false
+      image:
+        repository: qdrant
+        tag: "v1.7.4"
+        pullPolicy: IfNotPresent
+
+# =============================================================================
+# OBJECT STORAGE - Air-Gapped Configuration
+# =============================================================================
+storage:
+  # Use internal MinIO or ODF
+  provider: minio
+
+  bucket: leasingops-documents
+
+  minio:
+    enabled: true
+    external:
+      enabled: false
+    internal:
+      enabled: true
+      image:
+        repository: minio
+        tag: "RELEASE.2024-01-01T00-00-00Z"
+        pullPolicy: IfNotPresent
+      persistence:
+        enabled: true
+        size: 100Gi
+        storageClass: local-storage
+      # Disable MinIO update checks
+      env:
+        MINIO_UPDATE: "off"
+        MINIO_BROWSER_REDIRECT_ALLOW_ALL: "on"
+
+  # S3 disabled in air-gapped
+  s3:
+    enabled: false
+
+  azureBlob:
+    enabled: false
+
+# =============================================================================
+# CACHE - Air-Gapped Configuration
+# =============================================================================
+cache:
+  external:
+    enabled: false
+
+  internal:
+    enabled: true
+    image:
+      repository: redis
+      tag: "7-alpine"
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: local-storage
+
+# =============================================================================
+# AUTHENTICATION - Air-Gapped Configuration
+# =============================================================================
+auth:
+  # Use local authentication or internal IdP
+  provider: local
+
+  # Disable external OIDC providers
+  oidc:
+    enabled: false
+
+  keycloak:
+    enabled: false
+
+  okta:
+    enabled: false
+
+  azureAD:
+    enabled: false
+
+  # Enable local authentication
+  local:
+    enabled: true
+    # Configure via secret
+    existingSecret: leasingops-auth-secret
+
+# =============================================================================
+# MONITORING - Air-Gapped Configuration
+# =============================================================================
+monitoring:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: openshift-user-workload-monitoring
+
+  # Disable external observability
+  opentelemetry:
+    enabled: false
+
+  langfuse:
+    enabled: false
+
+# =============================================================================
+# LOGGING - Air-Gapped Configuration
+# =============================================================================
+logging:
+  level: info
+  format: json
+
+  # Use internal log aggregation only
+  aggregation:
+    enabled: true
+    provider: elasticsearch
+    # Internal Elasticsearch endpoint
+    endpoint: "http://elasticsearch.logging.svc.cluster.local:9200"
+
+# =============================================================================
+# NETWORK POLICIES - Air-Gapped (Strict)
+# =============================================================================
+networkPolicies:
+  enabled: true
+
+  # Strict network isolation
+  defaultDeny:
+    enabled: true
+    ingress: true
+    egress: true
+
+  # Only allow internal namespaces
+  allowedNamespaces:
+    - openshift-ingress
+    - openshift-monitoring
+    - openshift-user-workload-monitoring
+    - openshift-logging
+    - ai-models  # Namespace for AI model serving
+
+  # Block all external egress
+  egressRules:
+    - to:
+        - namespaceSelector: {}
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+# =============================================================================
+# IMAGE MIRRORING REFERENCE
+# =============================================================================
+# The following images must be mirrored to your internal registry:
+#
+# Core Application:
+#   - quay.io/codvo-neio/leasingops-app:1.0.0
+#   - quay.io/codvo-neio/leasingops-api:1.0.0
+#   - quay.io/codvo-neio/leasingops-worker:1.0.0
+#
+# Infrastructure:
+#   - docker.io/library/postgres:15-alpine
+#   - docker.io/library/redis:7-alpine
+#   - docker.io/minio/minio:RELEASE.2024-01-01T00-00-00Z
+#
+# AI/ML Models:
+#   - quay.io/codvo-neio/llmd:latest
+#   - quay.io/codvo-neio/text-embeddings-server:latest
+#   - ghcr.io/meta-llama/llama-stack:latest (optional)
+#
+# Vector Store (if using Qdrant):
+#   - docker.io/qdrant/qdrant:v1.7.4
+#
+# Model Files (download and host internally):
+#   - llama-3.1-8b-instruct (GGUF format, ~4.5GB for Q4)
+#   - sentence-transformers/all-MiniLM-L6-v2 (~90MB)
+#   - cross-encoder/ms-marco-MiniLM-L-6-v2 (~90MB)
+#
+# Use oc-mirror or skopeo to sync images:
+#   skopeo copy docker://quay.io/codvo-neio/leasingops-api:1.0.0 \
+#     docker://registry.internal.example.com/codvo-neio/leasingops-api:1.0.0

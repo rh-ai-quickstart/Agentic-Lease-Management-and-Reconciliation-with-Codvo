@@ -1,0 +1,204 @@
+name: RSDP Deploy — NeIO LeasingOps
+
+# This workflow is the RSDP-facing automated deployment path.
+# RSDP calls: helm install <release> ./leasingops/helm --values <rsdp-values-file>
+# No oc commands, no shell scripts, no Makefile — pure Helm.
+#
+# Trigger: manually via workflow_dispatch, or via RSDP webhook calling the
+# repository_dispatch event type "rsdp-deploy".
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+          - uat
+      namespace:
+        description: "Kubernetes namespace"
+        required: true
+        default: "neio-leasingops"
+      chart_version:
+        description: "Helm chart version to deploy (leave blank for latest)"
+        required: false
+        default: ""
+
+  repository_dispatch:
+    types: [rsdp-deploy]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate:
+    name: Validate Helm Charts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Update dependencies
+        run: |
+          helm dependency update ./helm/infra
+          helm dependency update ./leasingops/helm
+
+      - name: Lint infra chart
+        run: |
+          helm lint ./helm/infra \
+            --values ./helm/infra/values.yaml \
+            --strict
+
+      - name: Lint app chart (with placeholder LLM values)
+        run: |
+          helm lint ./leasingops/helm \
+            --values ./values-rsdp.yaml \
+            --set llm.url="https://lint-placeholder.rsdp.redhat.io/v1" \
+            --set llm.apiToken="lint-placeholder-token" \
+            --set llm.model="meta-llama/Llama-3-70b-chat-hf" \
+            --strict
+
+      - name: Dry-run infra chart
+        env:
+          NAMESPACE: ${{ github.event.inputs.namespace || 'neio-leasingops' }}
+        run: |
+          helm install neio-infra ./helm/infra \
+            --namespace "$NAMESPACE" \
+            --values ./helm/infra/values.yaml \
+            --dry-run \
+            --generate-name
+
+      - name: Dry-run app chart
+        env:
+          NAMESPACE: ${{ github.event.inputs.namespace || 'neio-leasingops' }}
+        run: |
+          helm install neio-leasingops ./leasingops/helm \
+            --namespace "$NAMESPACE" \
+            --values ./values-rsdp.yaml \
+            --set llm.url="https://lint-placeholder.rsdp.redhat.io/v1" \
+            --set llm.apiToken="lint-placeholder-token" \
+            --set llm.model="meta-llama/Llama-3-70b-chat-hf" \
+            --dry-run \
+            --generate-name
+
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    # NOTE FOR RSDP: RSDP will typically pre-install operators and skip this job.
+    # Set the RSDP_MANAGED_INFRA variable to 'true' in the environment to skip.
+    if: ${{ vars.RSDP_MANAGED_INFRA != 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          echo "$KUBECONFIG_B64" | base64 -d > /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Deploy infra chart
+        env:
+          NAMESPACE: ${{ github.event.inputs.namespace || 'neio-leasingops' }}
+        run: |
+          helm upgrade --install neio-infra ./helm/infra \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            --values ./helm/infra/values.yaml \
+            --wait \
+            --timeout 10m
+
+  deploy-app:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-infra]
+    if: always() && needs.validate.result == 'success'
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          echo "$KUBECONFIG_B64" | base64 -d > /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Deploy application chart
+        # RSDP automated path: pure helm install — no oc commands, no shell scripts.
+        # LLM values are injected by RSDP via secrets (LLM_URL, LLM_API_TOKEN, LLM_MODEL).
+        env:
+          NAMESPACE: ${{ github.event.inputs.namespace || 'neio-leasingops' }}
+          LLM_URL: ${{ secrets.LLM_URL }}
+          LLM_API_TOKEN: ${{ secrets.LLM_API_TOKEN }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        run: |
+          LLM_ARGS=""
+          [ -n "$LLM_URL" ]       && LLM_ARGS="$LLM_ARGS --set llm.url=$LLM_URL"
+          [ -n "$LLM_API_TOKEN" ] && LLM_ARGS="$LLM_ARGS --set llm.apiToken=$LLM_API_TOKEN"
+          [ -n "$LLM_MODEL" ]     && LLM_ARGS="$LLM_ARGS --set llm.model=$LLM_MODEL"
+
+          helm upgrade --install neio-leasingops ./leasingops/helm \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            --values ./values-rsdp.yaml \
+            $LLM_ARGS \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        env:
+          NAMESPACE: ${{ github.event.inputs.namespace || 'neio-leasingops' }}
+        run: |
+          kubectl rollout status deployment \
+            --namespace "$NAMESPACE" \
+            --timeout=5m
+          echo "## Deployment Status" >> "$GITHUB_STEP_SUMMARY"
+          kubectl get pods \
+            --namespace "$NAMESPACE" \
+            -o wide >> "$GITHUB_STEP_SUMMARY"

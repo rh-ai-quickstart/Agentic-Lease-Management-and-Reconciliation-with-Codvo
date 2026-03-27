@@ -1,0 +1,18 @@
+apiVersion: v2
+name: minio
+description: MinIO high-performance object storage compatible with S3 API
+type: application
+version: 0.1.0
+appVersion: "RELEASE.2024-01-16T16-07-38Z"
+keywords:
+  - minio
+  - object-storage
+  - s3
+  - storage
+  - blob
+home: https://min.io
+sources:
+  - https://github.com/minio/minio
+maintainers:
+  - name: CODVO.AI
+    email: support@codvo.ai

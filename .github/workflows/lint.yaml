@@ -1,0 +1,217 @@
+name: Helm Lint
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+    paths:
+      - '**/helm/**'
+      - '.github/workflows/lint.yaml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - '**/helm/**'
+      - '.github/workflows/lint.yaml'
+
+jobs:
+  lint:
+    name: Lint Helm Charts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Lint leasingops chart
+        run: |
+          echo "Linting leasingops chart..."
+          helm lint ./leasingops/helm \
+            --strict \
+            --with-subcharts
+
+      - name: Lint openshift-ai chart
+        run: |
+          echo "Linting openshift-ai chart..."
+          helm lint ./openshift-ai/helm \
+            --strict
+
+      - name: Lint pgvector chart
+        run: |
+          echo "Linting pgvector chart..."
+          helm lint ./dependencies/pgvector/helm \
+            --strict
+
+  validate-yaml:
+    name: Validate YAML Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Create yamllint config
+        run: |
+          cat > .yamllint.yaml << 'EOF'
+          extends: default
+          rules:
+            line-length:
+              max: 200
+              allow-non-breakable-words: true
+              allow-non-breakable-inline-mappings: true
+            document-start: disable
+            truthy:
+              check-keys: false
+            comments:
+              min-spaces-from-content: 1
+            braces:
+              max-spaces-inside: 1
+            brackets:
+              max-spaces-inside: 1
+          EOF
+
+      - name: Lint YAML files
+        run: |
+          yamllint -c .yamllint.yaml \
+            leasingops/helm/*.yaml \
+            leasingops/helm/templates/*.yaml \
+            openshift-ai/helm/*.yaml \
+            openshift-ai/helm/templates/*.yaml \
+            dependencies/pgvector/helm/*.yaml \
+            dependencies/pgvector/helm/templates/*.yaml
+
+  template-validation:
+    name: Validate Chart Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Update chart dependencies
+        run: |
+          helm dependency update ./leasingops/helm || true
+          helm dependency update ./openshift-ai/helm || true
+          helm dependency update ./dependencies/pgvector/helm || true
+
+      - name: Template leasingops chart
+        run: |
+          echo "Templating leasingops chart..."
+          helm template test-release ./leasingops/helm \
+            --debug \
+            --dry-run > /dev/null
+
+      - name: Template openshift-ai chart
+        run: |
+          echo "Templating openshift-ai chart..."
+          helm template test-release ./openshift-ai/helm \
+            --debug \
+            --dry-run > /dev/null
+
+      - name: Template pgvector chart
+        run: |
+          echo "Templating pgvector chart..."
+          helm template test-release ./dependencies/pgvector/helm \
+            --debug \
+            --dry-run > /dev/null
+
+  check-best-practices:
+    name: Check Helm Best Practices
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Install chart-testing
+        uses: helm/chart-testing-action@v2
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Check for common issues
+        run: |
+          echo "Checking for common Helm issues..."
+
+          # Check for hardcoded namespaces
+          echo "Checking for hardcoded namespaces..."
+          if grep -r "namespace:" --include="*.yaml" leasingops/helm/templates/ | grep -v "{{ " | grep -v ".Release.Namespace" | grep -v "#"; then
+            echo "Warning: Found potential hardcoded namespaces"
+          fi
+
+          # Check for missing resource limits
+          echo "Checking for resource definitions..."
+          for chart in leasingops/helm openshift-ai/helm dependencies/pgvector/helm; do
+            if [ -f "$chart/values.yaml" ]; then
+              if ! grep -q "resources:" "$chart/values.yaml"; then
+                echo "Warning: $chart/values.yaml may be missing resource definitions"
+              fi
+            fi
+          done
+
+          # Check for missing labels
+          echo "Checking for standard labels..."
+          for template in leasingops/helm/templates/*.yaml; do
+            if [ -f "$template" ]; then
+              if ! grep -q "app.kubernetes.io/name" "$template" && ! grep -q "include.*labels" "$template"; then
+                echo "Info: $template may be missing standard Kubernetes labels"
+              fi
+            fi
+          done
+
+          echo "Best practices check completed"
+
+      - name: Verify Chart.yaml metadata
+        run: |
+          echo "Verifying Chart.yaml metadata..."
+
+          for chart in leasingops/helm openshift-ai/helm dependencies/pgvector/helm; do
+            echo "Checking $chart/Chart.yaml..."
+
+            if [ ! -f "$chart/Chart.yaml" ]; then
+              echo "Error: $chart/Chart.yaml not found"
+              exit 1
+            fi
+
+            # Check required fields
+            required_fields=("apiVersion" "name" "version" "description")
+            for field in "${required_fields[@]}"; do
+              if ! grep -q "^$field:" "$chart/Chart.yaml"; then
+                echo "Error: Missing required field '$field' in $chart/Chart.yaml"
+                exit 1
+              fi
+            done
+
+            echo "$chart/Chart.yaml: OK"
+          done
