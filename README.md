@@ -67,7 +67,8 @@ graph TB
 |-------------|---------|-------|
 | Red Hat OpenShift | 4.14+ | Kubernetes 1.27+ |
 | Helm | 3.x | Chart installation |
-| NeIO License Token | - | Contact sales@codvo.ai |
+| NeIO License Token | - | Contact bala@codvo.ai or indranil@codvo.ai |
+| Container Registry Access | - | Images hosted on `rhleasingopsacr.azurecr.io` — request pull credentials from bala@codvo.ai or indranil@codvo.ai |
 | OpenShift CLI (oc) | 4.14+ | Cluster access |
 | Red Hat OpenShift AI | 2.x | Optional, for on-cluster vLLM/LlamaStack inference |
 | **LLM Inference** | - | Bundled Ollama + LlamaStack (no external key) or Red Hat OpenShift AI vLLM — see [Configure LLM Provider](#2-configure-llm-provider) |
@@ -143,11 +144,24 @@ helm install leasingops neio/leasingops \
 
 ### 3. Generate Pull Secret
 
-```bash
-# Generate OpenShift pull secret for NeIO container registry
-./scripts/generate-pull-secret.sh
+NeIO LeasingOps container images are hosted on **Azure Container Registry** at `rhleasingopsacr.azurecr.io`.
 
-# Apply the pull secret to your namespace
+To request registry credentials and a license token, contact:
+- **bala@codvo.ai**
+- **indranil@codvo.ai**
+
+Once you have credentials:
+
+```bash
+# Create the pull secret in your namespace
+oc create secret docker-registry acr-secret \
+  --docker-server=rhleasingopsacr.azurecr.io \
+  --docker-username=<acr-username> \
+  --docker-password=<acr-password> \
+  -n leasingops
+
+# Or use the provided script (requires credentials in env)
+./scripts/generate-pull-secret.sh
 oc apply -f pull-secret.yaml -n leasingops
 ```
 
@@ -479,12 +493,21 @@ For complete RHOAI architecture diagrams, integration details, and GPU operator 
 | [Security](docs/SECURITY.md) | Security best practices |
 | [Red Hat OpenShift AI Integration](docs/REDHAT_AI_INTEGRATION.md) | RHOAI architecture and integration details |
 
+## Access & Licensing
+
+To use NeIO LeasingOps you need:
+
+1. **License token** — required for deployment
+2. **Container registry credentials** — pull access to `rhleasingopsacr.azurecr.io`
+
+Contact **bala@codvo.ai** or **indranil@codvo.ai** to request both.
+
 ## Support
 
 - **Documentation**: [https://docs.neio.ai/leasingops](https://docs.neio.ai/leasingops)
 - **Issues**: GitHub Issues in this repository
+- **Access & Licensing**: bala@codvo.ai or indranil@codvo.ai
 - **Enterprise Support**: support@codvo.ai
-- **Sales**: sales@codvo.ai
 
 ## License
 
