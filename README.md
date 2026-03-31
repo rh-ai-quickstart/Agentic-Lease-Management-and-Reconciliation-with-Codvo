@@ -71,7 +71,8 @@ graph TB
 | Container Registry Access | - | Images hosted on `rhleasingopsacr.azurecr.io` — request pull credentials from bala@codvo.ai or indranil@codvo.ai |
 | OpenShift CLI (oc) | 4.14+ | Cluster access |
 | Red Hat OpenShift AI | 2.x | Optional, for on-cluster vLLM/LlamaStack inference |
-| **LLM Inference** | - | Bundled Ollama + LlamaStack (no external key) or Red Hat OpenShift AI vLLM — see [Configure LLM Provider](#2-configure-llm-provider) |
+| **LLM Inference** | - | vLLM + LlamaStack via [RH AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) (recommended) or RSDP-injected endpoint — see [Configure LLM Provider](#2-configure-llm-provider) |
+| **Hugging Face Token** | - | Required for downloading `meta-llama/Llama-3.2-3B-Instruct` via the arch charts |
 
 ### Cluster Resources
 
@@ -96,21 +97,49 @@ export NEIO_LICENSE_TOKEN="your-license-token"
 ./scripts/validate-token.sh
 ```
 
-### 2. Configure LLM Provider
+### 2. Deploy LLM Inference (Architecture Charts)
 
-NeIO LeasingOps runs inference through **Red Hat OpenShift AI** — no external LLM API key required. Choose the path that matches your cluster setup before running `helm install`.
+NeIO LeasingOps uses [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) to deploy **vLLM + LlamaStack** in-cluster. This is the recommended approach for all OpenShift deployments — no external LLM API key required, no Ollama.
 
-#### Option A: Bundled Ollama + LlamaStack (CRC / Air-Gapped) — no external key
+> See [mhdawson/arch-chart-example](https://github.com/mhdawson/arch-chart-example) for a minimal working example of these charts in action.
 
-The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. This is the **tested and validated path** for CRC and air-gapped clusters — no external API key required.
-
-**GPU:** When an NVIDIA GPU is available on the node, Ollama automatically uses it — no configuration change needed. With a GPU, switch to a larger model (`llama3.1:8b` or `llama3.1:70b`) for better quality:
+#### Step 1 — Add the architecture charts repo and install LLM inference
 
 ```bash
---set llm.model="llama3.1:8b"   # GPU-accelerated, 1× A100 40GB
+helm repo add rh-ai-quickstart https://rh-ai-quickstart.github.io/ai-architecture-charts
+helm repo update
+
+# Create a secret with your Hugging Face token (needed to pull Llama 3.2 weights)
+oc create secret generic huggingface-secret \
+  --from-literal=HF_TOKEN=$HF_TOKEN \
+  -n leasingops
+
+# Deploy vLLM (llm-service) + LlamaStack using the arch charts
+# GPU cluster:
+helm install llm-inference rh-ai-quickstart/llm-service \
+  --namespace leasingops \
+  --set device=gpu \
+  --set models.llama-3-2-3b-instruct.enabled=true
+
+# CPU-only cluster (evaluation / CRC):
+helm install llm-inference rh-ai-quickstart/llm-service \
+  --namespace leasingops \
+  --set device=cpu \
+  --set models.llama-3-2-3b-instruct.enabled=true
+
+# Deploy LlamaStack (API layer over vLLM)
+helm install llamastack rh-ai-quickstart/llama-stack \
+  --namespace leasingops \
+  --set models.llama-3-2-3b-instruct.enabled=true
 ```
 
-**CPU-only (no GPU):** `llama3.2:3b` is pre-pulled by the init container and runs on any node.
+Once the LlamaStack pod is ready, note the service endpoint (used in Step 4):
+```bash
+oc get svc llamastack -n leasingops
+# → llamastack:8321 (cluster-internal)
+```
+
+#### Step 2 — Install NeIO LeasingOps pointing at LlamaStack
 
 ```bash
 helm install leasingops neio/leasingops \
@@ -118,27 +147,12 @@ helm install leasingops neio/leasingops \
   --set global.licenseToken=$NEIO_LICENSE_TOKEN \
   --set global.domain=leasingops.apps.your-cluster.com \
   --set llm.url="http://llamastack:8321" \
-  --set llm.model="llama3.2:3b" \
+  --set llm.model="meta-llama/Llama-3.2-3B-Instruct" \
   --set llm.apiToken="" \
   -f examples/values-production.yaml
 ```
 
-#### Option B: Red Hat OpenShift AI (vLLM) — no external key
-
-```bash
-# Get the vLLM serving endpoint from your RHOAI namespace
-VLLM_URL=$(oc get inferenceservice llama3-70b -n rhoai-model-serving \
-  -o jsonpath='{.status.url}')
-
-helm install leasingops neio/leasingops \
-  --namespace leasingops \
-  --set global.licenseToken=$NEIO_LICENSE_TOKEN \
-  --set global.domain=leasingops.apps.your-cluster.com \
-  --set llm.url="${VLLM_URL}" \
-  --set llm.model="meta-llama/Llama-3-70b-chat-hf" \
-  --set llm.apiToken="" \
-  -f examples/values-production.yaml
-```
+> **Larger models:** With GPU nodes, switch to `meta-llama/Llama-3-8b-instruct` or `meta-llama/Llama-3-70b-chat-hf` for better quality — just change `--set llm.model=` and redeploy the `llm-service` chart with the appropriate model enabled.
 
 > **RSDP deployments:** The Red Hat Solution Deployment Platform automatically injects `llm.url`, `llm.apiToken`, and `llm.model` — no manual configuration needed. See [OpenShift AI Inference](#openshift-ai-inference) for full details.
 
@@ -354,11 +368,12 @@ qdrant:
   persistence:
     size: 100Gi
 
-# LLM Inference — LlamaStack (bundled Ollama) or RHOAI vLLM
+# LLM Inference — LlamaStack (arch chart, backed by vLLM)
+# Deploy llm-service + llama-stack arch charts first, then point here
 llm:
-  url: "http://llamastack:8321"   # bundled in-cluster; override for RHOAI vLLM
-  model: "llama3.2:3b"            # override for production (e.g. meta-llama/Llama-3-70b-chat-hf)
-  apiToken: ""                    # empty for in-cluster endpoints
+  url: "http://llamastack:8321"   # LlamaStack service (arch chart)
+  model: "meta-llama/Llama-3.2-3B-Instruct"  # or Llama-3-8b-instruct for GPU
+  apiToken: ""                    # empty for cluster-internal endpoints
   maxTokens: 4096
   temperature: 0.7
 ```
@@ -375,7 +390,7 @@ llm:
 
 ## OpenShift AI Inference
 
-NeIO LeasingOps is designed to run inference through **Red Hat OpenShift AI** as the primary path for enterprise deployments. The worker service uses **LlamaStack** as its inference layer, which connects to either a self-managed **Ollama** instance (bundled, for development/evaluation) or a production **vLLM** serving runtime deployed via OpenShift AI.
+NeIO LeasingOps uses **LlamaStack** as its inference layer, backed by **vLLM** deployed via the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts). This is the recommended pattern for all OpenShift deployments — including development, evaluation, and production.
 
 ### How It Works
 
@@ -383,13 +398,11 @@ NeIO LeasingOps is designed to run inference through **Red Hat OpenShift AI** as
 leasingops-worker
       │
       ▼
-LlamaStack  ──────────────────────────────────────────────┐
-      │                                                    │
-      ├── Ollama (self-managed, bundled)                   │  OpenShift AI
-      │   For: local dev, air-gapped eval                  │  vLLM serving
-      │                                                    │  (production)
-      └── vLLM via OpenShift AI  ─────────────────────────┘
-          For: production, GPU-accelerated workloads
+LlamaStack (arch chart)
+      │
+      └── vLLM / llm-service (arch chart)
+          ├── CPU: quay.io/ecosystem-appeng/vllm:cpu  (eval / CRC)
+          └── GPU: vllm/vllm-openai  (production, NVIDIA/AMD/Gaudi)
 ```
 
 LlamaStack exposes an **OpenAI-compatible chat completions endpoint**. The worker calls:
@@ -398,7 +411,7 @@ LlamaStack exposes an **OpenAI-compatible chat completions endpoint**. The worke
 {llm.url}/v1/openai/v1/chat/completions
 ```
 
-This is the LlamaStack-specific path that proxies to the underlying vLLM or Ollama backend.
+This is the LlamaStack-specific path that proxies to the underlying vLLM backend.
 
 ### Helm Values for Inference
 
@@ -410,50 +423,27 @@ This is the LlamaStack-specific path that proxies to the underlying vLLM or Olla
 | `llm.maxTokens` | Max tokens per completion | `4096` |
 | `llm.temperature` | Sampling temperature | `0.7` |
 
-### Bundled Ollama + LlamaStack (CRC / Air-Gapped / Evaluation)
+### Deploying with Architecture Charts
 
-The chart includes Ollama and LlamaStack as in-cluster deployments. This path was validated on **CRC (OpenShift 4.14+ / CodeReady Containers)** with CPU-only inference using `llama3.2:3b`.
+The recommended way to deploy LLM inference is via the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts). See [mhdawson/arch-chart-example](https://github.com/mhdawson/arch-chart-example) for a minimal working example.
 
-When the chart deploys with bundled inference enabled:
-- **Ollama** runs at `http://ollama:11434`, serves `llama3.2:3b` (pulled on first start via init container)
-- **LlamaStack** runs at `http://llamastack:8321`, backed by Ollama
-- The worker connects to `http://llamastack:8321` and calls the OpenAI-compat endpoint
+The `llm-service` chart deploys vLLM and supports multiple device types:
 
-The worker and API receive these env vars automatically from Helm:
+| Device | Image | Use case |
+|--------|-------|----------|
+| `gpu` | `vllm/vllm-openai:v0.11.1` | Production (NVIDIA GPU) |
+| `gpu-amd` | `quay.io/modh/vllm:rhoai-2.25-rocm` | AMD ROCm GPU |
+| `hpu` | `quay.io/modh/vllm:rhoai-2.25-gaudi` | Intel Gaudi |
+| `cpu` | `quay.io/ecosystem-appeng/vllm:cpu-v0.9.2` | Evaluation / CRC (no GPU) |
+
+Once deployed, LlamaStack runs at `http://llamastack:8321` in the same namespace. The worker and API receive:
 
 ```
 LLAMASTACK_URL=http://llamastack:8321
-LLAMASTACK_MODEL=llama3.2:3b
+LLAMASTACK_MODEL=meta-llama/Llama-3.2-3B-Instruct
 ```
 
-No GPU required. Expect ~6–30s per agent call on CPU (varies by token count).
-
 > **Storage:** The API and worker share a `ReadWriteOnce` PVC (`leasingops-uploads`, 5Gi) for uploaded documents. OpenShift restricted SCC requires `fsGroup: 1000` in the pod security context — the chart sets this automatically.
-
-### Configuring for OpenShift AI (vLLM)
-
-1. **Deploy a model via OpenShift AI** — use the RHOAI dashboard or a `ServingRuntime` + `InferenceService` manifest to serve a Llama 3 or Mistral model with vLLM.
-
-2. **Get the inference endpoint:**
-
-   ```bash
-   oc get inferenceservice -n rhoai-model-serving
-   # Note the URL for your model, e.g.:
-   # https://llama3-70b-rhoai-model-serving.apps.your-cluster.com
-   ```
-
-3. **Install the chart pointing at OpenShift AI:**
-
-   ```bash
-   helm install leasingops neio/leasingops \
-     --namespace leasingops \
-     --set global.licenseToken=$NEIO_LICENSE_TOKEN \
-     --set global.domain=leasingops.apps.your-cluster.com \
-     --set llm.url="https://llama3-70b-rhoai-model-serving.apps.your-cluster.com" \
-     --set llm.model="meta-llama/Llama-3-8b-instruct" \
-     --set llm.apiToken="" \
-     -f examples/values-production.yaml
-   ```
 
 ### RSDP Automatic Injection
 
@@ -471,10 +461,10 @@ llm:
 
 | Model | Recommended For | GPU Memory |
 |-------|-----------------|------------|
-| `llama3.2:3b` | CRC / air-gapped / CPU-only evaluation (bundled Ollama) | None (CPU) |
-| `meta-llama/Llama-3-8b-instruct` | Balanced quality/cost | 1× A100 40GB |
-| `meta-llama/Llama-3-70b-chat-hf` | Production (highest quality) | 2× A100 80GB |
-| `mistralai/Mistral-7B-Instruct-v0.3` | Resource-constrained clusters | 1× A100 40GB |
+| `meta-llama/Llama-3.2-3B-Instruct` | Evaluation / CRC (arch chart, `device: cpu`) | None (CPU) |
+| `meta-llama/Llama-3-8b-instruct` | Balanced quality/cost (arch chart, `device: gpu`) | 1× A100 40GB |
+| `meta-llama/Llama-3-70b-chat-hf` | Production — highest quality | 2× A100 80GB |
+| `mistralai/Mistral-7B-Instruct-v0.3` | Resource-constrained GPU clusters | 1× A100 40GB |
 
 For complete RHOAI architecture diagrams, integration details, and GPU operator configuration, see [docs/REDHAT_AI_INTEGRATION.md](docs/REDHAT_AI_INTEGRATION.md).
 
