@@ -101,7 +101,15 @@ NeIO LeasingOps runs inference through **Red Hat OpenShift AI** — no external 
 
 #### Option A: Bundled Ollama + LlamaStack (CRC / Air-Gapped) — no external key
 
-The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. This is the **tested and validated path** for CRC and air-gapped clusters — no GPU or external API key required.
+The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. This is the **tested and validated path** for CRC and air-gapped clusters — no external API key required.
+
+**GPU:** When an NVIDIA GPU is available on the node, Ollama automatically uses it — no configuration change needed. With a GPU, switch to a larger model (`llama3.1:8b` or `llama3.1:70b`) for better quality:
+
+```bash
+--set llm.model="llama3.1:8b"   # GPU-accelerated, 1× A100 40GB
+```
+
+**CPU-only (no GPU):** `llama3.2:3b` is pre-pulled by the init container and runs on any node.
 
 ```bash
 helm install leasingops neio/leasingops \
@@ -173,6 +181,53 @@ oc wait --for=condition=ready pod -l app.kubernetes.io/instance=leasingops -n le
 # Access the application
 echo "Application URL: https://$(oc get route leasingops-app -n leasingops -o jsonpath='{.spec.host}')"
 ```
+
+### 6. Test with Sample Contracts
+
+The `examples/sample-contracts/` directory contains **45 real aircraft leasing documents** across 10 document types — validated against the full 10-agent pipeline on CRC (OpenShift 4.14+, CPU-only, `llama3.2:3b`).
+
+**Document types included:**
+
+| Directory | Type | Count |
+|-----------|------|-------|
+| `01-lease-agreements/` | Lease Agreements (LA) | 6 |
+| `02-delivery-condition-reports/` | Delivery Condition Reports (DCR) | 6 |
+| `03-maintenance-reserve-claims/` | Maintenance Reserve Claims (MRC) | 6 |
+| `04-return-condition-reports/` | Return Condition Reports (RCR) | 6 |
+| `05-lease-amendments/` | Lease Amendments (AMEND) | 6 |
+| `06-letters-of-intent/` | Letters of Intent (LOI) | 3 |
+| `07-insurance-certificates/` | Insurance Certificates (IC) | 3 |
+| `08-technical-acceptance-reports/` | Technical Acceptance Reports (TAR) | 3 |
+| `09-default-notices/` | Default/Notice of Default (NOD) | 3 |
+| `10-supplemental-rent-statements/` | Supplemental Rent Statements (SRS) | 3 |
+
+**Upload via API:**
+
+```bash
+# Get the API route
+API_URL=https://$(oc get route leasingops-api -n leasingops -o jsonpath='{.spec.host}')
+
+# Upload all sample contracts
+for pdf in examples/sample-contracts/**/*.pdf; do
+  curl -s -X POST "$API_URL/api/v1/documents/upload" \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "file=@$pdf" | jq -r '.document_id + " " + .filename'
+done
+```
+
+**Monitor pipeline progress:**
+
+```bash
+# Check processing status
+curl -s "$API_URL/api/v1/documents" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq '[.[] | {id, filename, status, current_agent}] | group_by(.status) | map({status: .[0].status, count: length})'
+```
+
+All 45 documents should pass through the 10-agent pipeline:
+`contract_intake → term_extraction → obligation_mapping → utilization_reconcile → reserve_calculation → variance_detection → return_readiness → evidence_pack → decision_support → escalation`
+
+Expected completion time: ~8–12 hours (CPU / `llama3.2:3b`), ~30–60 minutes (GPU / `Llama-3-8b`).
 
 ## Components
 
