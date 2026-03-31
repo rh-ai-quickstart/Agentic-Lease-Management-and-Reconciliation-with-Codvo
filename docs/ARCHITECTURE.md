@@ -1,875 +1,351 @@
-# NeIO LeasingOps - Architecture Overview
+# NeIO LeasingOps — Architecture Overview
 
-**Version:** 2.0 (Updated per Michael Dawson's detailed feedback - Feb 5, 2026)
-**Status:** Ready for Red Hat Review
-**Reviewer:** Michael Dawson (Red Hat)
+This document describes the system as it is deployed and tested on OpenShift 4.14+ (validated on CRC with CPU-only inference).
 
 ---
 
-## Red Hat Feedback Addressed
+## System Overview
 
-| Feedback | Status | Section |
-|----------|--------|---------|
-| Everything inside OpenShift cluster (not separate blocks) | **ADDRESSED v2.0** | System Architecture |
-| RAG via Llama Stack Memory API (not custom pipeline) | **ADDRESSED v2.0** | Llama Stack Gateway Pattern |
-| Multi-model: specify per request, no dynamic routing | **ADDRESSED v2.0** | Model Configuration |
-| Remove InstructLab from quickstart | **ADDRESSED v2.0** | Removed |
-| Remove Model Catalog/Registry (no fine-tuning) | **ADDRESSED v2.0** | Removed |
-| Agents → Llama Stack Responses API (port 8321) | **ADDRESSED v2.0** | OpenShift AI Integration |
-| Llama Stack is gateway, not LLM-D | **ADDRESSED v2.0** | Model Serving |
-| llm-d behind Llama Stack in config | **ADDRESSED v2.0** | Scalability |
-| Remove NVIDIA GPU Operator (OpenShift AI manages) | **ADDRESSED v2.0** | Removed |
-| Fix Mermaid flow order (Llama Stack → llm-d → vLLM) | **ADDRESSED v2.0** | All diagrams |
-| Add Llama Stack pod to deployment diagram | **ADDRESSED v2.0** | Deployment Architecture |
+NeIO LeasingOps is a document-processing pipeline that drives aircraft lease contracts through 10 sequential AI agents. Users upload PDF contracts; the worker processes each document through the full agent chain and surfaces structured outputs (extracted terms, obligations, variances, return readiness, decision recommendations).
 
----
-
-This document provides a comprehensive overview of the NeIO LeasingOps system architecture, including component descriptions, AI agents, data flow, and integration points.
-
-## System Architecture
-
-> **All components run inside the OpenShift cluster.** NeIO application pods, OpenShift AI (Llama Stack + vLLM), and the data layer are all deployed as pods in different namespaces on the same cluster.
+All components run in a single OpenShift namespace (`leasingops`).
 
 ```mermaid
 graph TB
-    subgraph USERS["Enterprise Users"]
-        OPS[Operations Teams]
-        ANALYSTS[Data Analysts]
+    subgraph OCP["OpenShift Cluster — Namespace: leasingops"]
+        APP[leasingops-app<br/>Next.js 15 · Port 3000]
+        API[leasingops-api<br/>FastAPI · Port 8001]
+        WORKER[leasingops-worker<br/>Python · Redis BRPOP queues]
+        DOCLING[docling<br/>Document parsing · Port 5001]
+
+        subgraph RHAI["In-cluster Inference (RHAI)"]
+            OLLAMA[ollama<br/>Port 11434<br/>llama3.2:3b]
+            LS[llamastack<br/>Port 8321<br/>distribution-ollama]
+        end
+
+        PVC[(leasingops-uploads<br/>5Gi PVC<br/>API + Worker shared)]
     end
 
-    subgraph OCP["OpenShift Cluster"]
-
-        subgraph INGRESS["Ingress"]
-            ROUTE[OpenShift Route<br/>TLS Termination]
-            OIDC[OIDC Provider<br/>Keycloak/Azure AD]
-        end
-
-        subgraph NEIO_NS["Namespace: neio-leasingops"]
-            APP[leasingops-app<br/>Next.js 15<br/>Port 3000]
-            API[leasingops-api<br/>FastAPI<br/>Port 8000]
-            WORKER[leasingops-worker<br/>Background Jobs]
-
-            subgraph AGENTS["10 AI Agents (LangGraph)"]
-                A1[Contract Intake]
-                A2[Term Extractor]
-                A3[Obligation Mapper]
-                A4[Utilization Reconciler]
-                A5[Reserve Calculator]
-                A6[Variance Detector]
-                A7[Return Readiness]
-                A8[Evidence Pack]
-                A9[Decision Support]
-                A10[Escalation]
-            end
-        end
-
-        subgraph RHOAI_NS["Namespace: redhat-ods-applications (OpenShift AI)"]
-            subgraph LS_POD["Llama Stack Pod (Port 8321)"]
-                LS_API[OpenAI-Compatible API]
-                LS_GUARD[Llama Guard Safety Shields]
-                LS_MEM[Memory / RAG API]
-                LS_TOOLS[Tool / MCP Registry]
-            end
-            VLLM_70B[vLLM Pod<br/>Llama 3.3 70B Instruct<br/>GPU]
-            VLLM_GUARD[vLLM Pod<br/>Llama Guard 3 8B<br/>GPU]
-        end
-
-        subgraph DATA_NS["Namespace: neio-data"]
-            PG[(PostgreSQL 16<br/>+ pgvector)]
-            REDIS[(Redis 7<br/>Cache/Queue)]
-            MINIO[(MinIO<br/>Object Storage)]
-        end
+    subgraph HOST["VPS Host (external)"]
+        PG[(PostgreSQL 15<br/>Port 5432)]
+        REDIS[(Redis 7<br/>Port 6379)]
     end
 
-    USERS --> ROUTE
-    ROUTE --> APP
-    APP --> API
-    API --> WORKER
-
-    AGENTS -->|"All LLM calls via<br/>OpenAI-compatible API"| LS_API
-    LS_API --> LS_GUARD
-    LS_API --> LS_MEM
-    LS_API --> LS_TOOLS
-    LS_API -->|"Auto-discovered via<br/>K8s DNS in namespace"| VLLM_70B
-    LS_GUARD --> VLLM_GUARD
-
+    APP -->|HTTPS| API
+    API -->|upload/read| PVC
+    WORKER -->|read| PVC
+    API -->|job enqueue| REDIS
+    WORKER -->|BRPOP job queue| REDIS
     API --> PG
-    API --> REDIS
-    API --> MINIO
-    LS_MEM --> PG
+    WORKER --> PG
+    WORKER -->|parse PDF| DOCLING
+    WORKER -->|LLM calls<br/>POST /v1/openai/v1/chat/completions| LS
+    LS --> OLLAMA
 
-    OIDC -.->|Auth| ROUTE
-
-    style OCP fill:#f9fafb,stroke:#111
-    style RHOAI_NS fill:#fee2e2,stroke:#dc2626
-    style LS_POD fill:#f97316,color:#fff
-    style NEIO_NS fill:#e0e7ff,stroke:#4338ca
-    style DATA_NS fill:#d1fae5,stroke:#059669
+    style RHAI fill:#fee2e2,stroke:#dc2626
+    style OCP fill:#f9fafb,stroke:#374151
 ```
 
-> **ARCHITECTURE PRINCIPLE:** All LLM inference requests from NeIO agents route through **Llama Stack (port 8321)** using the OpenAI-compatible API. Llama Stack handles guardrails, memory/RAG, and tool execution. vLLM models are auto-discovered via Kubernetes DNS in the same namespace. Direct vLLM access is not permitted.
+---
 
-## Component Descriptions
+## Components
 
-### Frontend Tier
+### leasingops-app
 
-#### leasingops-app
+Next.js 15 frontend served at the OpenShift route.
 
-The user-facing web application built with Next.js 15.
-
-| Aspect | Details |
-|--------|---------|
-| **Technology** | Next.js 15, React 19, TypeScript |
+| | |
+|---|---|
 | **Port** | 3000 |
-| **Replicas** | 2 (configurable) |
-| **Resources** | 500m CPU, 512Mi memory |
+| **Route** | `https://leasingops.apps.<cluster-domain>` |
+| **Image** | `rhleasingopsacr.azurecr.io/leasingops-app` |
+| **Env** | `NEXT_PUBLIC_API_URL` → leasingops-api route |
 
-**Key Features:**
-- Contract dashboard with real-time status
-- Drag-and-drop document upload
-- Obligation tracking and alerts
-- Maintenance calendar visualization
-- Compliance reporting dashboards
-- AI-powered chat interface for contract Q&A
+### leasingops-api
 
-### API Tier
+FastAPI backend. Handles document uploads, contract CRUD, and exposes the REST API.
 
-#### leasingops-api
+| | |
+|---|---|
+| **Port** | 8001 |
+| **Route** | `https://leasingops-api.apps.<cluster-domain>` |
+| **Image** | `rhleasingopsacr.azurecr.io/leasingops-api` |
+| **Storage** | Mounts `leasingops-uploads` PVC at `/app/uploads` |
 
-The core backend service handling business logic and AI orchestration.
-
-| Aspect | Details |
-|--------|---------|
-| **Technology** | FastAPI, Python 3.12, Pydantic |
-| **Port** | 8000 |
-| **Replicas** | 3 (configurable) |
-| **Resources** | 2 CPU, 4Gi memory |
-
-**API Endpoints:**
+**Endpoints:**
 
 | Endpoint | Purpose |
 |----------|---------|
-| `/api/v1/contracts` | Contract CRUD operations |
-| `/api/v1/obligations` | Obligation management and tracking |
-| `/api/v1/maintenance` | Maintenance scheduling and history |
-| `/api/v1/compliance` | Compliance checks and reporting |
-| `/api/v1/chat` | AI-powered contract Q&A |
-| `/api/v1/documents` | Document upload and management |
-| `/api/v1/reports` | Report generation and download |
-| `/health` | Health check endpoint |
-| `/metrics` | Prometheus metrics |
+| `POST /api/v1/documents/upload` | Accept PDF, enqueue ingestion job |
+| `GET /api/v1/documents` | List documents with pipeline status |
+| `GET /api/v1/documents/{id}` | Document detail + agent results |
+| `GET /health` | Liveness / readiness probe |
 
-#### leasingops-worker
+### leasingops-worker
 
-Background job processor for async operations.
+Background processor. Polls Redis job queues and drives each document through the 10-agent pipeline sequentially.
 
-| Aspect | Details |
-|--------|---------|
-| **Technology** | Python, Celery/ARQ |
-| **Concurrency** | 4 workers (configurable) |
-| **Replicas** | 2 (configurable) |
-| **Resources** | 2 CPU, 4Gi memory |
+| | |
+|---|---|
+| **Command** | `python worker.py` |
+| **Image** | `rhleasingopsacr.azurecr.io/leasingops-worker` |
+| **Storage** | Mounts `leasingops-uploads` PVC at `/app/uploads` |
+| **Queue pattern** | Redis BRPOP on `leasingops:jobs:pending:{job_type}` |
+| **Status key** | `leasingops:status:{doc_id}` (Redis hash) |
 
-**Job Types:**
+### Ollama
 
-| Job | Description | Typical Duration |
-|-----|-------------|------------------|
-| Document Ingestion | PDF parsing, OCR, chunking | 30s - 5min |
-| Contract Analysis | AI term extraction | 1 - 3min |
-| Embedding Generation | Vector embeddings for RAG | 10s - 1min |
-| Obligation Monitoring | Deadline checks, alerts | < 10s |
-| Report Generation | Compliance reports | 30s - 2min |
-| Notification Dispatch | Email, webhook delivery | < 5s |
+Runs the language model on CPU (or GPU if available). Pre-pulls `llama3.2:3b` via init container on first start.
+
+| | |
+|---|---|
+| **Image** | `docker.io/ollama/ollama:latest` |
+| **Port** | 11434 |
+| **Model** | `llama3.2:3b` (init container: `ollama pull llama3.2:3b`) |
+| **Storage** | `ollama-models` PVC (10Gi) at `/root/.ollama` |
+| **GPU** | Auto-detected. When a GPU node is available, Ollama uses it without config changes. |
+
+### LlamaStack (distribution-ollama)
+
+OpenAI-compatible API gateway over Ollama. All agent LLM calls go through LlamaStack.
+
+| | |
+|---|---|
+| **Image** | `docker.io/llamastack/distribution-ollama:latest` |
+| **Port** | 8321 |
+| **Ollama backend** | `http://ollama:11434` |
+| **OpenAI-compat endpoint** | `POST /v1/openai/v1/chat/completions` |
+
+> **Important:** The LlamaStack distribution-ollama image exposes the OpenAI-compatible endpoint at `/v1/openai/v1/chat/completions`, **not** `/v1/chat/completions`. The worker's `LLAMASTACK_URL` is set to `http://llamastack:8321` and the OpenAI client is configured with `base_url=http://llamastack:8321/v1/openai/v1`.
+
+### Docling (optional)
+
+Document parsing service. The worker sends PDFs to Docling for structured text extraction. Falls back to PyMuPDF automatically when Docling is unavailable — no config change needed.
+
+| | |
+|---|---|
+| **Image** | `quay.io/docling-project/docling-serve` (CPU build) |
+| **Port** | 5001 |
+| **Fallback** | PyMuPDF (built into worker image) |
+
+### Data Layer (external to cluster)
+
+PostgreSQL and Redis run on the VPS host, reachable from pods via the host's public IP. CRC uses passt networking — pods reach the host at its public IP rather than a gateway address.
+
+| Service | Default port | Used for |
+|---------|-------------|----------|
+| PostgreSQL 15 | 5432 | Document records, agent results, contracts |
+| Redis 7 | 6379 | Job queues (`leasingops:jobs:pending:*`) and status hashes |
+
+### Shared PVC
+
+`leasingops-uploads` (5Gi, ReadWriteOnce) is mounted by both the API and worker at `/app/uploads`. The API writes uploaded PDFs; the worker reads them for processing.
+
+OpenShift restricted SCC requires `fsGroup: 1000` in the pod security context for PVC write access — the chart sets this automatically.
 
 ---
 
-## AI Agents Overview
+## 10-Agent Pipeline
 
-NeIO LeasingOps includes 10 specialized AI agents that work together to automate aircraft leasing operations.
+Documents are processed sequentially through 10 agents. Each agent is a Redis job type. When an agent completes, it enqueues the next agent's job.
 
 ```mermaid
 graph LR
-    subgraph "Document Processing Pipeline"
-        DOC[Document Upload] --> A1[Contract Intake]
-        A1 --> A2[Term Extractor]
-        A2 --> A3[Obligation Mapper]
-    end
-
-    subgraph "Analysis & Reconciliation"
-        A3 --> A4[Utilization Reconciler]
-        A3 --> A5[Reserve Calculator]
-        A3 --> A6[Variance Detector]
-        A3 --> A7[Return Readiness]
-    end
-
-    subgraph "Decision & Output"
-        A4 & A5 & A6 & A7 --> A8[Evidence Pack]
-        A8 --> A9[Decision Support]
-        A9 --> A10[Escalation]
-    end
-
-    A9 --> OUTPUT[Reports & Recommendations]
-    A10 --> HUMAN[Human-in-the-Loop]
+    UPLOAD[Document Upload] --> A1
+    A1[contract_intake] --> A2[term_extraction]
+    A2 --> A3[obligation_mapping]
+    A3 --> A4[utilization_reconcile]
+    A4 --> A5[reserve_calculation]
+    A5 --> A6[variance_detection]
+    A6 --> A7[return_readiness]
+    A7 --> A8[evidence_pack]
+    A8 --> A9[decision_support]
+    A9 --> A10[escalation]
+    A10 --> DONE[completed]
 ```
 
-### 1. Contract Intake Agent
+**Job queue pattern:**
 
-**Purpose:** Validates and classifies incoming lease documents.
+```
+Redis list:  leasingops:jobs:pending:{job_type}  ← worker BRPOP
+Redis hash:  leasingops:status:{doc_id}           ← status + current_agent
+Redis hash:  leasingops:jobs:{job_id}             ← job payload
+```
 
-| Capability | Description |
-|------------|-------------|
-| Document Classification | Identifies lease type (dry, wet, ACMI, etc.) |
-| Quality Validation | Checks document quality, OCR readiness |
-| Metadata Extraction | Extracts basic document metadata |
-| Routing | Determines processing pipeline based on document type |
+### Agent Descriptions
 
-**Input:** Raw PDF documents
-**Output:** Classified document with metadata, ready for processing
-
----
-
-### 2. Term Extractor Agent
-
-**Purpose:** Extracts key terms, dates, and financial details from contracts.
-
-| Capability | Description |
-|------------|-------------|
-| Date Extraction | Lease start/end, delivery dates, return windows |
-| Financial Terms | Monthly rent, security deposits, reserves |
-| Party Identification | Lessor, lessee, guarantors, maintenance providers |
-| Aircraft Details | MSN, registration, engine types, configurations |
-| Condition Requirements | Delivery and return conditions |
-
-**Input:** Classified contract document
-**Output:** Structured term data (JSON)
+| Agent | Job type | Purpose |
+|-------|----------|---------|
+| **Contract Intake** | `contract_intake` | Validates and classifies incoming document (dry lease, wet lease, MRC, amendment, etc.) |
+| **Term Extractor** | `term_extraction` | Extracts dates, financials, parties, aircraft details, and conditions |
+| **Obligation Mapper** | `obligation_mapping` | Identifies all contractual obligations with deadlines and responsible parties |
+| **Utilization Reconciler** | `utilization_reconcile` | Compares actual flight hours/cycles against contracted MRO data |
+| **Reserve Calculator** | `reserve_calculation` | Tracks maintenance reserve balances, contributions, drawdowns, and shortfalls |
+| **Variance Detector** | `variance_detection` | Flags discrepancies between contract terms and actual performance |
+| **Return Readiness** | `return_readiness` | Assesses redelivery compliance — gap analysis, cost estimates, timeline |
+| **Evidence Pack** | `evidence_pack` | Assembles audit-ready documentation linking evidence to contract clauses |
+| **Decision Support** | `decision_support` | Produces return/extend/buyout analysis with risk-adjusted recommendations |
+| **Escalation** | `escalation` | Routes items requiring human judgment to stakeholders with full context |
 
 ---
 
-### 3. Obligation Mapper Agent
-
-**Purpose:** Identifies and categorizes contractual obligations.
-
-| Capability | Description |
-|------------|-------------|
-| Obligation Identification | Finds all contractual obligations |
-| Categorization | Maintenance, financial, reporting, insurance, etc. |
-| Deadline Extraction | Due dates, recurring schedules |
-| Responsibility Assignment | Identifies responsible party for each obligation |
-| Dependency Mapping | Links related obligations |
-
-**Input:** Extracted contract terms
-**Output:** Obligation registry with deadlines and responsibilities
-
----
-
-### 4. Utilization Reconciler Agent
-
-**Purpose:** Compares actual aircraft utilization against contractual MRO data.
-
-| Capability | Description |
-|------------|-------------|
-| Flight Hours Reconciliation | Compares logged vs. contracted flight hours |
-| Cycles Tracking | Monitors takeoff/landing cycles against limits |
-| MRO Data Comparison | Reconciles maintenance records with contract terms |
-| Utilization Alerts | Flags over/under-utilization patterns |
-| Rate Adjustments | Calculates rate impacts from utilization variances |
-
-**Input:** Contract terms, MRO data, utilization records
-**Output:** Reconciliation report with variances
-
----
-
-### 5. Reserve Calculator Agent
-
-**Purpose:** Tracks and forecasts maintenance reserve contributions and drawdowns.
-
-| Capability | Description |
-|------------|-------------|
-| Reserve Tracking | Monitors airframe, engine, APU reserve balances |
-| Contribution Calculations | Computes monthly/hourly reserve rates |
-| Drawdown Validation | Validates reserve claims against contract terms |
-| Shortfall Detection | Identifies reserve funding gaps |
-| End-of-Lease Projections | Forecasts reserve positions at lease end |
-
-**Input:** Contract financial terms, maintenance events, utilization data
-**Output:** Reserve balance reports, forecasts, shortfall alerts
-
----
-
-### 6. Variance Detector Agent
-
-**Purpose:** Identifies discrepancies between contract terms and actual performance.
-
-| Capability | Description |
-|------------|-------------|
-| Financial Variances | Detects payment discrepancies, rate mismatches |
-| Compliance Variances | Flags deviations from contractual obligations |
-| Maintenance Variances | Identifies gaps between scheduled and actual maintenance |
-| Threshold Alerting | Configurable tolerance levels for variance flagging |
-| Trend Analysis | Tracks variance patterns over time |
-
-**Input:** All extracted data, reconciliation results
-**Output:** Variance report with severity ratings
-
----
-
-### 7. Return Readiness Agent
-
-**Purpose:** Assesses aircraft redelivery compliance and preparation requirements.
-
-| Capability | Description |
-|------------|-------------|
-| Return Condition Parsing | Interprets redelivery condition clauses |
-| Gap Assessment | Current condition vs. return requirements |
-| Cost Estimation | Estimates redelivery preparation costs |
-| Timeline Planning | Creates return preparation timeline |
-| Half-Time Analysis | Calculates component life remaining at return |
-
-**Input:** Contract return conditions, current aircraft status
-**Output:** Return readiness checklist, cost estimates, timeline
-
----
-
-### 8. Evidence Pack Agent
-
-**Purpose:** Assembles audit-ready documentation packages for compliance and decisions.
-
-| Capability | Description |
-|------------|-------------|
-| Document Assembly | Collects and organizes supporting documents |
-| Evidence Linking | Links evidence to specific contract clauses |
-| Compliance Packaging | Creates regulatory compliance packages |
-| Version Management | Tracks document versions and changes |
-| Export Formats | Generates PDF, Word, Excel evidence packs |
-
-**Input:** Processed data from all upstream agents
-**Output:** Structured evidence packages (PDF, DOCX, XLSX)
-
----
-
-### 9. Decision Support Agent
-
-**Purpose:** Provides data-driven recommendations for lease decisions.
-
-| Capability | Description |
-|------------|-------------|
-| Return/Extend/Buyout Analysis | Compares options with financial projections |
-| Risk-Adjusted Scoring | Weights decisions by risk factors |
-| Scenario Modeling | What-if analysis for different outcomes |
-| Market Benchmarking | Compares terms against market rates |
-| Recommendation Generation | Produces actionable recommendations with confidence scores |
-
-**Input:** All agent outputs, market data
-**Output:** Decision recommendations with supporting evidence
-
----
-
-### 10. Escalation Agent
-
-**Purpose:** Routes decisions requiring human judgment to the appropriate stakeholders.
-
-| Capability | Description |
-|------------|-------------|
-| Threshold Detection | Identifies decisions requiring human review |
-| Stakeholder Routing | Routes to appropriate decision-makers based on type/value |
-| SLA Tracking | Monitors response times for escalated items |
-| Context Assembly | Provides full context package for human reviewers |
-| Resolution Tracking | Tracks outcomes of escalated decisions |
-
-**Input:** Flagged items from Decision Support and Variance Detector
-**Output:** Escalation notifications, human review queues
-
----
-
-## Data Flow Diagrams
-
-### Document Ingestion Flow
+## Document Ingestion Flow
 
 ```mermaid
 sequenceDiagram
     participant User
     participant App as leasingops-app
-    participant API as leasingops-api
+    participant API as leasingops-api (8001)
+    participant PVC as /app/uploads (PVC)
+    participant Redis
     participant Worker as leasingops-worker
-    participant S3 as MinIO Storage
+    participant Docling as docling (5001)
+    participant LS as llamastack (8321)
     participant PG as PostgreSQL
-    participant LS as Llama Stack (8321)
-    participant VLLM as vLLM (70B)
 
     User->>App: Upload PDF
-    App->>API: POST /api/v1/documents
-    API->>S3: Store raw PDF
-    API->>PG: Create document record
-    API->>Worker: Queue ingestion job
+    App->>API: POST /api/v1/documents/upload
+    API->>PVC: Write PDF to /app/uploads/{uuid}_filename.pdf
+    API->>PG: Create document record (status=pending)
+    API->>Redis: LPUSH leasingops:jobs:pending:upload
     API-->>App: 202 Accepted
-    App-->>User: Upload confirmed
 
-    Worker->>S3: Fetch PDF
-    Worker->>Worker: Parse PDF, OCR
-    Worker->>LS: memory.insert() - Ingest document chunks
-    LS->>PG: Store vectors in pgvector
-    Worker->>PG: Update document status
+    Worker->>Redis: BRPOP leasingops:jobs:pending:upload
+    Worker->>PVC: Read PDF
+    Worker->>Docling: Parse PDF (fallback: PyMuPDF)
+    Docling-->>Worker: Structured text
+    Worker->>Redis: Update status=processing, current_agent=contract_intake
+    Worker->>Redis: LPUSH leasingops:jobs:pending:contract_intake
 
-    Worker->>LS: Contract Intake Agent (via Responses API)
-    LS->>VLLM: Inference
-    VLLM-->>LS: Classification result
-    Worker->>LS: Term Extractor Agent (via Responses API)
-    LS->>VLLM: Inference
-    VLLM-->>LS: Extracted terms
-    Worker->>LS: Obligation Mapper Agent (via Responses API)
-    LS->>VLLM: Inference
-    VLLM-->>LS: Obligations
-    Worker->>PG: Store extracted data & obligations
-```
-
-### Query Flow (RAG via Llama Stack Memory API)
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant App as leasingops-app
-    participant API as leasingops-api
-    participant LS as Llama Stack (8321)
-    participant PGV as pgvector
-    participant VLLM as vLLM (70B)
-
-    User->>App: Ask question about contract
-    App->>API: POST /api/v1/chat
-    API->>LS: memory.query() - Retrieve relevant documents
-    LS->>PGV: Vector similarity search
-    PGV-->>LS: Relevant chunks
-    LS-->>API: Document context
-    API->>LS: POST /inference/completion (with context)
-    LS->>VLLM: Forward to model
-    VLLM-->>LS: LLM response
-    LS-->>API: Safe response (after guardrails)
-    API-->>App: Streaming response
-    App-->>User: Display answer
-```
-
-### Obligation Monitoring Flow
-
-```mermaid
-sequenceDiagram
-    participant Scheduler as Cron Scheduler
-    participant Worker as leasingops-worker
-    participant PG as PostgreSQL
-    participant A6 as Variance Detector
-    participant A10 as Escalation Agent
-    participant Email as Email Service
-    participant Webhook as External System
-
-    Scheduler->>Worker: Trigger daily check
-    Worker->>PG: Query upcoming obligations
-    PG-->>Worker: Obligations due in 30/14/7/1 days
-
-    loop For each obligation
-        Worker->>A6: Check for variances
-        A6-->>Worker: Variance result
-        Worker->>A10: Escalate if threshold exceeded
-        A10->>Email: Send email alert
-        A10->>Webhook: POST to external system
+    loop Each agent in sequence
+        Worker->>Redis: BRPOP leasingops:jobs:pending:{agent}
+        Worker->>LS: POST /v1/openai/v1/chat/completions
+        LS-->>Worker: LLM response
+        Worker->>PG: Store agent result
+        Worker->>Redis: LPUSH leasingops:jobs:pending:{next_agent}
     end
 
-    Worker->>PG: Update obligation status
+    Worker->>Redis: Update status=completed
+    Worker->>PG: Update document record
 ```
 
 ---
 
-## Integration Points
+## Inference Architecture
 
-### OpenShift AI Integration (REVISED per Michael Dawson's Feedback - Feb 5, 2026)
-
-> **IMPORTANT:** All LLM inference from NeIO agents routes through **Llama Stack (port 8321)** using the OpenAI-compatible API. Llama Stack handles guardrails, memory/RAG, and tool execution. Models are auto-discovered via Kubernetes DNS. Direct vLLM access is not permitted.
-
-NeIO LeasingOps integrates with Red Hat OpenShift AI using the **Llama Stack Model Serving Pattern**:
-
-```mermaid
-flowchart TB
-    subgraph NEIO["NeIO LeasingOps (Application Pods)"]
-        API[leasingops-api]
-        subgraph AGENTS["10 AI Agents (LangGraph)"]
-            A1[Contract Intake]
-            A2[Term Extractor]
-            A3[Obligation Mapper]
-            A4[Utilization Reconciler]
-            A5[Decision Support]
-        end
-    end
-
-    subgraph RHOAI["OpenShift AI"]
-        subgraph LS["Llama Stack Pod (Port 8321)"]
-            LS_API[OpenAI-Compatible API]
-            LS_GUARD[Llama Guard<br/>Safety Shields]
-            LS_MEM[Memory API<br/>Document RAG]
-            LS_TOOLS[Tool Registry<br/>MCP Servers]
-        end
-
-        subgraph VLLM_PODS["vLLM Model Serving"]
-            VLLM_70B[vLLM<br/>Llama 3.3 70B Instruct<br/>GPU]
-            VLLM_8B[vLLM<br/>Llama Guard 3 8B<br/>GPU]
-        end
-    end
-
-    subgraph MCP["MCP Tool Servers"]
-        DB_MCP[Database MCP<br/>Schema + Execute]
-        DOC_MCP[Document MCP<br/>Search + Retrieve]
-    end
-
-    %% Agents call Llama Stack (REQUIRED PATTERN)
-    AGENTS -->|"All LLM calls"| API
-    API -->|"1-POST /inference/completion<br/>model: llama-3.3-70b"| LS_API
-    LS_API -->|"2-Safety check"| LS_GUARD
-    LS_API -->|"3-Auto-discovered<br/>via K8s DNS"| VLLM_70B
-    LS_GUARD --> VLLM_8B
-    VLLM_70B -->|"4-Response"| LS_API
-    LS_API -->|"5-Output safety check"| LS_GUARD
-    LS_API -->|"6-Safe response"| API
-
-    %% Tool use & Memory
-    LS_API --> LS_TOOLS
-    LS_TOOLS --> DB_MCP
-    LS_TOOLS --> DOC_MCP
-    LS_API --> LS_MEM
-
-    style LS fill:#f97316,color:#fff
-    style RHOAI fill:#fee2e2,stroke:#dc2626
+```
+leasingops-worker
+        │
+        │  POST /v1/openai/v1/chat/completions
+        ▼
+llamastack:8321  (distribution-ollama)
+        │
+        │  Ollama API
+        ▼
+ollama:11434
+        │
+        ▼
+llama3.2:3b  (CPU, or GPU if available)
 ```
 
-### Llama Stack Model Serving Pattern (REQUIRED)
+**Worker env vars:**
 
-**Why Llama Stack?**
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `LLAMASTACK_URL` | `http://llamastack:8321` | LlamaStack service (in-cluster) |
+| `LLAMASTACK_MODEL` | `llama3.2:3b` | Model name as registered in Ollama |
 
-| Feature | Benefit |
-|---------|---------|
-| **OpenAI-Compatible API** | Standard API (port 8321) that all NeIO agents use for inference |
-| **Llama Guard Safety Shields** | Filters harmful/inappropriate content before AND after inference |
-| **Memory / RAG API** | Built-in document ingestion and retrieval (replaces custom RAG pipeline) |
-| **Tool / MCP Registry** | Centralized MCP server management for database/document tools |
-| **Model Specification** | Agents specify model per request (no dynamic routing needed) |
-| **Auto-Discovery** | vLLM models discovered automatically via Kubernetes DNS in same namespace |
+**LLM call code pattern:**
 
-**Request Flow:**
+```python
+from openai import AsyncOpenAI
 
-```mermaid
-sequenceDiagram
-    participant Agent as NeIO Agent
-    participant API as leasingops-api
-    participant LS as Llama Stack (8321)
-    participant Guard as Llama Guard Shield
-    participant VLLM as vLLM (Llama 3.3 70B)
+client = AsyncOpenAI(
+    base_url="http://llamastack:8321/v1/openai/v1",
+    api_key="llamastack",  # LlamaStack does not enforce API keys
+)
 
-    Agent->>API: 1. Inference request
-    API->>LS: 2. POST /inference/completion (model: llama-3.3-70b)
-    LS->>Guard: 3. Input safety check
-    Guard-->>LS: 4. Validated prompt
-    LS->>VLLM: 5. Forward to vLLM (auto-discovered via K8s DNS)
-    VLLM-->>LS: 6. LLM response
-    LS->>Guard: 7. Output safety check
-    Guard-->>LS: 8. Safe response
-    LS-->>API: 9. Return to API
-    API-->>Agent: 10. Return to agent
-```
-
-### Model Configuration
-
-Agents specify the model per request. No dynamic multi-model routing is needed for the quickstart:
-
-| Agent | Model | Reason |
-|-------|-------|--------|
-| Term Extractor, Decision Support | Llama 3.3 70B Instruct | Complex reasoning tasks |
-| Contract Intake, Escalation | Llama 3.3 70B Instruct | Document understanding |
-| All agents (safety shield) | Llama Guard 3 8B | Input/output guardrails |
-
-### Llama Stack Configuration (uses Red Hat Helm chart)
-
-We use the existing `rh-ai-quickstart/ai-architecture-charts/llama-stack` Helm chart:
-
-```yaml
-# values.yaml for llama-stack chart
-image:
-  repository: quay.io/ai-on-openshift/llama-stack-server
-  tag: latest
-
-service:
-  port: 8321
-
-# Safety shields
-shields:
-  - name: llama-guard
-    model: meta-llama/Llama-Guard-3-8B
-
-# Models auto-discovered via K8s DNS in same namespace
-# No need to configure model endpoints manually
-
-# Memory/RAG configuration
-memory:
-  backend: redis
-  redisHost: redis.neio-data.svc.cluster.local
-
-# MCP Tool servers
-tools:
-  mcpServers:
-    - name: database-mcp
-      endpoint: "http://database-mcp.neio-leasingops.svc:8080"
-    - name: document-mcp
-      endpoint: "http://document-mcp.neio-leasingops.svc:8080"
-```
-
-### vLLM Model Serving (uses Red Hat Helm chart)
-
-We use the existing `rh-ai-quickstart/ai-architecture-charts/llm-service` chart:
-
-```yaml
-# values.yaml for llm-service chart (Llama 3.3 70B)
-image:
-  repository: quay.io/modh/vllm
-  tag: latest
-
-model:
-  name: meta-llama/Llama-3.3-70B-Instruct
-  maxModelLen: 8192
-
-resources:
-  gpu:
-    type: nvidia.com/gpu
-    count: 2
-  tensorParallelism: 2
-
-# OpenShift AI manages GPU operator - no need to configure directly
-```
-
-### Scaling with llm-d (Optional - Production Only)
-
-For production deployments requiring high inference throughput, **llm-d** can be configured as the inference backend **behind** Llama Stack:
-
-```mermaid
-flowchart LR
-    API[NeIO API] -->|"All requests"| LS[Llama Stack<br/>Port 8321]
-    LS -->|"Configured to use<br/>llm-d as backend"| LLMD[llm-d Router]
-    LLMD --> V1[vLLM Pod 1<br/>GPU]
-    LLMD --> V2[vLLM Pod 2<br/>GPU]
-    LLMD --> V3[vLLM Pod N<br/>GPU]
-
-    style LS fill:#f97316,color:#fff
-    style LLMD fill:#3b82f6,color:#fff
-```
-
-> **Note:** llm-d sits **between** Llama Stack and vLLM, not in front. Llama Stack is always the entry point. llm-d is configured in Llama Stack's values.yaml as the inference backend.
-
-**Serving Runtime Summary:**
-
-| Runtime | Role | When Needed |
-|---------|------|-------------|
-| **Llama Stack** | Gateway (REQUIRED) | Always - handles guardrails, memory, tools, API |
-| **vLLM** | Inference engine | Always - runs the models on GPU |
-| **llm-d** | Load balancer | Production only - distributes across multiple vLLM pods |
-
-### External LLM Providers
-
-When using external LLM providers, the API routes requests through a unified interface.
-
-| Provider | Models | Use Case |
-|----------|--------|----------|
-| Anthropic | Claude Sonnet 4, Claude Opus 4 | Primary LLM for agents |
-| OpenAI | GPT-4o, GPT-4 Turbo | Alternative LLM provider |
-| Voyage AI | voyage-3, voyage-code-3 | Embedding generation |
-
-**Configuration Priority:**
-
-1. OpenShift AI (if `ai.openshiftAI.enabled: true`)
-2. Anthropic (if `ANTHROPIC_API_KEY` is set)
-3. OpenAI (if `OPENAI_API_KEY` is set)
-
-### External System Integrations
-
-```mermaid
-graph LR
-    subgraph "NeIO LeasingOps"
-        API[leasingops-api]
-    end
-
-    subgraph "Enterprise Systems"
-        ERP[ERP System<br/>SAP, Oracle]
-        CRM[CRM System<br/>Salesforce]
-        DMS[Document Management<br/>SharePoint, Box]
-    end
-
-    subgraph "Aviation Systems"
-        AMOS[AMOS<br/>Maintenance]
-        CAMPS[CAMPS<br/>Maintenance]
-        SPEC[SPEC2000<br/>Data Exchange]
-    end
-
-    subgraph "Communication"
-        SMTP[SMTP Server]
-        SLACK[Slack]
-        TEAMS[MS Teams]
-    end
-
-    API <-->|REST/Webhooks| ERP
-    API <-->|REST| CRM
-    API <-->|REST| DMS
-    API <-->|REST| AMOS
-    API <-->|REST| CAMPS
-    API <-->|SPEC2000| SPEC
-    API -->|Notifications| SMTP
-    API -->|Notifications| SLACK
-    API -->|Notifications| TEAMS
+response = await client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[...],
+    temperature=0.1,
+    max_tokens=4096,
+)
 ```
 
 ---
 
 ## Deployment Architecture
 
-### High Availability Configuration
+### Namespace
 
-```mermaid
-graph TB
-    subgraph "Zone A"
-        APP_A1[app-pod-1]
-        API_A1[api-pod-1]
-        API_A2[api-pod-2]
-        WORKER_A1[worker-pod-1]
-    end
+All components deploy into the **`leasingops`** namespace.
 
-    subgraph "Zone B"
-        APP_B1[app-pod-2]
-        API_B1[api-pod-3]
-        WORKER_B1[worker-pod-2]
-    end
+### Pods
 
-    subgraph "OpenShift AI Pods"
-        LS_POD[Llama Stack Pod<br/>Port 8321]
-        VLLM_POD1[vLLM Pod<br/>Llama 3.3 70B<br/>GPU]
-        VLLM_POD2[vLLM Pod<br/>Llama Guard 3 8B<br/>GPU]
-    end
+| Pod | Replicas | Resources (request/limit) |
+|-----|----------|--------------------------|
+| leasingops-app | 1 | 100m CPU / 500m · 256Mi / 512Mi |
+| leasingops-api | 1 | 200m CPU / 1000m · 512Mi / 1Gi |
+| leasingops-worker | 1 | 200m CPU / 1000m · 512Mi / 2Gi |
+| ollama | 1 | 200m CPU / 2000m · 256Mi / 4Gi |
+| llamastack | 1 | 100m CPU / 500m · 512Mi / 1Gi |
+| docling | 1 (optional) | — |
 
-    subgraph "Data Layer"
-        PG_PRIMARY[(PostgreSQL<br/>Primary)]
-        PG_REPLICA[(PostgreSQL<br/>Replica)]
-        REDIS_MASTER[(Redis<br/>Master)]
-        REDIS_REPLICA[(Redis<br/>Replica)]
-    end
+### Storage
 
-    APP_A1 & APP_B1 --> API_A1 & API_A2 & API_B1
-    API_A1 & API_A2 & API_B1 -->|"All LLM calls"| LS_POD
-    LS_POD --> VLLM_POD1
-    LS_POD --> VLLM_POD2
-    API_A1 & API_A2 & API_B1 --> PG_PRIMARY
-    PG_PRIMARY --> PG_REPLICA
-    API_A1 & API_A2 & API_B1 --> REDIS_MASTER
-    REDIS_MASTER --> REDIS_REPLICA
+| PVC | Size | Access | Mounted by |
+|-----|------|--------|------------|
+| `leasingops-uploads` | 5Gi | ReadWriteOnce | api, worker |
+| `ollama-models` | 10Gi | ReadWriteOnce | ollama |
 
-    style LS_POD fill:#f97316,color:#fff
-```
+### Routes (TLS edge termination)
 
-### Resource Requirements
+| Route | Service | Port |
+|-------|---------|------|
+| `leasingops.apps.<domain>` | leasingops-app | 3000 |
+| `leasingops-api.apps.<domain>` | leasingops-api | 8001 |
 
-| Component | Min CPU | Min Memory | Recommended CPU | Recommended Memory | Storage | GPU |
-|-----------|---------|------------|-----------------|-------------------|---------|-----|
-| leasingops-app | 500m | 512Mi | 1 | 1Gi | - | - |
-| leasingops-api | 2 | 4Gi | 4 | 8Gi | - | - |
-| leasingops-worker | 2 | 4Gi | 4 | 8Gi | - | - |
-| Llama Stack | 1 | 2Gi | 2 | 4Gi | - | - |
-| vLLM (Llama 3.3 70B) | 4 | 16Gi | 8 | 32Gi | - | 2x A100 |
-| vLLM (Llama Guard 3 8B) | 2 | 8Gi | 4 | 16Gi | - | 1x A100 |
-| PostgreSQL + pgvector | 1 | 2Gi | 2 | 4Gi | 50Gi | - |
-| Redis | 500m | 1Gi | 1 | 2Gi | 10Gi | - |
-| MinIO | 500m | 1Gi | 1 | 2Gi | 100Gi | - |
+### Secrets
+
+All sensitive values live in the `leasingops-secrets` Secret:
+
+| Key | Description |
+|-----|-------------|
+| `LEASINGOPS_DATABASE_URL` | PostgreSQL connection string (`postgresql+asyncpg://...`) |
+| `REDIS_URL` | Redis connection string (`redis://:password@host:6379`) |
+| `JWT_SECRET_KEY` | 64-char random string for token signing |
+| `UIP_INTERNAL_API_KEY` | Optional — inter-service auth key |
 
 ---
 
-## Security Architecture
+## Production Path (GPU / RHOAI)
 
-See [SECURITY.md](./SECURITY.md) for detailed security documentation.
+The deployment above was validated on CRC (CPU-only, `llama3.2:3b`). For production with GPU:
 
-```mermaid
-graph TB
-    subgraph "External"
-        USER[User]
-        OIDC[OIDC Provider]
-    end
+1. **Same stack, bigger model** — Ollama auto-detects GPU. Switch `LLAMASTACK_MODEL` to `llama3.1:8b` or `llama3.1:70b`. No other changes required.
 
-    subgraph "OpenShift Security"
-        ROUTE[Route<br/>TLS Termination]
-        NP[Network Policies]
-        SCC[Security Context<br/>Constraints]
-    end
+2. **Red Hat OpenShift AI (vLLM)** — Replace the bundled Ollama+LlamaStack with an RHOAI-managed vLLM serving runtime. Set `LLAMASTACK_URL` to the RHOAI inference endpoint. The worker code is unchanged — it calls the same OpenAI-compatible API.
 
-    subgraph "Application Security"
-        AUTH[Authentication<br/>Middleware]
-        RBAC[Role-Based<br/>Access Control]
-        AUDIT[Audit<br/>Logging]
-    end
+   ```bash
+   VLLM_URL=$(oc get inferenceservice llama3-70b -n rhoai-model-serving \
+     -o jsonpath='{.status.url}')
+   # Set LLAMASTACK_URL=$VLLM_URL in leasingops-secrets
+   # Update LLAMASTACK_MODEL=meta-llama/Llama-3-70b-chat-hf
+   ```
 
-    subgraph "Data Security"
-        TDE[Encryption<br/>at Rest]
-        TLS[Encryption<br/>in Transit]
-        SECRETS[Secret<br/>Management]
-    end
-
-    USER --> OIDC
-    OIDC --> ROUTE
-    ROUTE --> NP
-    NP --> AUTH
-    AUTH --> RBAC
-    RBAC --> AUDIT
-
-    SCC --> AUTH
-    SECRETS --> AUTH
-    TLS --> ROUTE
-    TDE --> SECRETS
-```
+3. **RSDP deployments** — `llm.url`, `llm.apiToken`, and `llm.model` are injected automatically by RSDP. No manual configuration needed.
 
 ---
 
-## Monitoring and Observability
+## Related Docs
 
-### Metrics Collection
-
-```mermaid
-graph LR
-    subgraph "Application"
-        APP[leasingops-app]
-        API[leasingops-api]
-        WORKER[leasingops-worker]
-    end
-
-    subgraph "Observability Stack"
-        PROM[Prometheus]
-        GRAF[Grafana]
-        JAEGER[Jaeger]
-        LOKI[Loki]
-    end
-
-    APP & API & WORKER -->|/metrics| PROM
-    APP & API & WORKER -->|traces| JAEGER
-    APP & API & WORKER -->|logs| LOKI
-    PROM --> GRAF
-    JAEGER --> GRAF
-    LOKI --> GRAF
-```
-
-**Key Metrics:**
-
-| Category | Metrics |
-|----------|---------|
-| API | Request latency, error rate, throughput |
-| Worker | Job duration, queue depth, failure rate |
-| AI | Token usage, inference latency, cache hit rate |
-| Database | Connection pool, query latency, replication lag |
-| Vector Store | Search latency, index size, recall rate |
+- [Installation Guide](./INSTALLATION.md)
+- [Configuration Reference](./CONFIGURATION.md)
+- [AI Agents Guide](./AGENTS.md)
+- [Troubleshooting](./TROUBLESHOOTING.md)
+- [Red Hat OpenShift AI Integration](./REDHAT_AI_INTEGRATION.md)
 
 ---
 
-## Next Steps
-
-- [Installation Guide](./INSTALLATION.md) - Deploy NeIO LeasingOps
-- [Configuration Reference](./CONFIGURATION.md) - Customize your deployment
-- [Security Guide](./SECURITY.md) - Security best practices
-- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
-
----
-
-*Document Version: 2.0 | NeIO LeasingOps on Red Hat OpenShift AI*
+*NeIO LeasingOps | Validated on OpenShift 4.14+ (CRC) with llama3.2:3b*
