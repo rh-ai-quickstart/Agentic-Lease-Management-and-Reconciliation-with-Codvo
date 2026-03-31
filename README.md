@@ -70,7 +70,7 @@ graph TB
 | NeIO License Token | - | Contact sales@codvo.ai |
 | OpenShift CLI (oc) | 4.14+ | Cluster access |
 | Red Hat OpenShift AI | 2.x | Optional, for on-cluster vLLM/LlamaStack inference |
-| **LLM Provider** | - | Anthropic API key, OpenAI API key, or Red Hat OpenShift AI (no external key needed) — see [Configure LLM Provider](#2-configure-llm-provider) |
+| **LLM Inference** | - | Bundled Ollama + LlamaStack (no external key) or Red Hat OpenShift AI vLLM — see [Configure LLM Provider](#2-configure-llm-provider) |
 
 ### Cluster Resources
 
@@ -97,39 +97,11 @@ export NEIO_LICENSE_TOKEN="your-license-token"
 
 ### 2. Configure LLM Provider
 
-NeIO LeasingOps supports three inference paths. Choose one before running `helm install`.
+NeIO LeasingOps runs inference through **Red Hat OpenShift AI** — no external LLM API key required. Choose the path that matches your cluster setup before running `helm install`.
 
-#### Option A: Anthropic (Claude)
+#### Option A: Bundled Ollama + LlamaStack (CRC / Air-Gapped) — no external key
 
-```bash
-# Set your Anthropic API key as a secret in the namespace
-oc create secret generic leasingops-llm-secret \
-  --from-literal=apiToken="<your-anthropic-api-key>" \
-  -n leasingops
-
-# Pass to Helm
-helm install leasingops ... \
-  --set llm.url="https://api.anthropic.com" \
-  --set llm.model="claude-sonnet-4-20250514" \
-  --set llm.apiToken="<your-anthropic-api-key>"
-```
-
-#### Option B: OpenAI (GPT)
-
-```bash
-helm install leasingops ... \
-  --set llm.url="https://api.openai.com" \
-  --set llm.model="gpt-4o" \
-  --set llm.apiToken="<your-openai-api-key>"
-```
-
-#### Option C: Red Hat OpenShift AI (LlamaStack / vLLM) — no external key
-
-The chart ships with a **bundled Ollama + LlamaStack stack** for air-gapped and evaluation deployments. No external API key is required. For production, point the same values at a vLLM serving runtime deployed via Red Hat OpenShift AI.
-
-**Bundled Ollama + LlamaStack (tested on CRC / air-gapped clusters):**
-
-The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. The worker connects to LlamaStack over the in-cluster service:
+The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. This is the **tested and validated path** for CRC and air-gapped clusters — no GPU or external API key required.
 
 ```bash
 helm install leasingops neio/leasingops \
@@ -142,7 +114,7 @@ helm install leasingops neio/leasingops \
   -f examples/values-production.yaml
 ```
 
-**Production: Red Hat OpenShift AI (vLLM):**
+#### Option B: Red Hat OpenShift AI (vLLM) — no external key
 
 ```bash
 # Get the vLLM serving endpoint from your RHOAI namespace
@@ -313,17 +285,13 @@ qdrant:
   persistence:
     size: 100Gi
 
-# AI Configuration
-ai:
-  provider: "anthropic"         # anthropic, openai, or openshift-ai
-  model: "claude-sonnet-4-20250514"
-  embeddingModel: "voyage-3"
-
-  # For OpenShift AI local serving
-  openshiftAI:
-    enabled: false
-    servingRuntime: "vllm"
-    modelName: "mistral-7b-instruct"
+# LLM Inference — LlamaStack (bundled Ollama) or RHOAI vLLM
+llm:
+  url: "http://llamastack:8321"   # bundled in-cluster; override for RHOAI vLLM
+  model: "llama3.2:3b"            # override for production (e.g. meta-llama/Llama-3-70b-chat-hf)
+  apiToken: ""                    # empty for in-cluster endpoints
+  maxTokens: 4096
+  temperature: 0.7
 ```
 
 ### Environment Variables
@@ -331,14 +299,10 @@ ai:
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `NEIO_LICENSE_TOKEN` | NeIO license token | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using Claude) | Conditional |
-| `OPENAI_API_KEY` | OpenAI API key (if using GPT) | Conditional |
-| `LLAMASTACK_URL` | LlamaStack service URL (bundled: `http://llamastack:8321`) | Conditional |
-| `LLAMASTACK_MODEL` | Model name served by LlamaStack/Ollama (e.g. `llama3.2:3b`) | Conditional |
-| `VOYAGE_API_KEY` | Voyage AI embedding API key | Yes |
+| `LLAMASTACK_URL` | LlamaStack service URL (default: `http://llamastack:8321`) | Auto-configured |
+| `LLAMASTACK_MODEL` | Model served by LlamaStack/Ollama (default: `llama3.2:3b`) | Auto-configured |
 | `DATABASE_URL` | PostgreSQL connection string | Auto-configured |
 | `REDIS_URL` | Redis connection string | Auto-configured |
-| `QDRANT_URL` | Qdrant connection string | Auto-configured |
 
 ## OpenShift AI Inference
 
