@@ -23,6 +23,8 @@ llm:
   model: ""          # <-- RSDP injects this (e.g. meta-llama/Llama-3-70b-chat-hf)
   maxTokens: 4096
   temperature: 0.7
+  # RSDP / vLLM direct: "/v1/chat/completions"
+  # Bundled LlamaStack (distribution-ollama): "/v1/openai/v1/chat/completions"
   apiPath: "/v1/chat/completions"
 
 # =============================================================================

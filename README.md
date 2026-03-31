@@ -69,7 +69,8 @@ graph TB
 | Helm | 3.x | Chart installation |
 | NeIO License Token | - | Contact sales@codvo.ai |
 | OpenShift CLI (oc) | 4.14+ | Cluster access |
-| Red Hat OpenShift AI | 2.x | Optional, for local LLM serving |
+| Red Hat OpenShift AI | 2.x | Optional, for on-cluster vLLM/LlamaStack inference |
+| **LLM Provider** | - | Anthropic API key, OpenAI API key, or Red Hat OpenShift AI (no external key needed) — see [Configure LLM Provider](#2-configure-llm-provider) |
 
 ### Cluster Resources
 
@@ -94,7 +95,73 @@ export NEIO_LICENSE_TOKEN="your-license-token"
 ./scripts/validate-token.sh
 ```
 
-### 2. Generate Pull Secret
+### 2. Configure LLM Provider
+
+NeIO LeasingOps supports three inference paths. Choose one before running `helm install`.
+
+#### Option A: Anthropic (Claude)
+
+```bash
+# Set your Anthropic API key as a secret in the namespace
+oc create secret generic leasingops-llm-secret \
+  --from-literal=apiToken="<your-anthropic-api-key>" \
+  -n leasingops
+
+# Pass to Helm
+helm install leasingops ... \
+  --set llm.url="https://api.anthropic.com" \
+  --set llm.model="claude-sonnet-4-20250514" \
+  --set llm.apiToken="<your-anthropic-api-key>"
+```
+
+#### Option B: OpenAI (GPT)
+
+```bash
+helm install leasingops ... \
+  --set llm.url="https://api.openai.com" \
+  --set llm.model="gpt-4o" \
+  --set llm.apiToken="<your-openai-api-key>"
+```
+
+#### Option C: Red Hat OpenShift AI (LlamaStack / vLLM) — no external key
+
+The chart ships with a **bundled Ollama + LlamaStack stack** for air-gapped and evaluation deployments. No external API key is required. For production, point the same values at a vLLM serving runtime deployed via Red Hat OpenShift AI.
+
+**Bundled Ollama + LlamaStack (tested on CRC / air-gapped clusters):**
+
+The chart deploys Ollama (model: `llama3.2:3b`) and LlamaStack distribution-ollama in-cluster. The worker connects to LlamaStack over the in-cluster service:
+
+```bash
+helm install leasingops neio/leasingops \
+  --namespace leasingops \
+  --set global.licenseToken=$NEIO_LICENSE_TOKEN \
+  --set global.domain=leasingops.apps.your-cluster.com \
+  --set llm.url="http://llamastack:8321" \
+  --set llm.model="llama3.2:3b" \
+  --set llm.apiToken="" \
+  -f examples/values-production.yaml
+```
+
+**Production: Red Hat OpenShift AI (vLLM):**
+
+```bash
+# Get the vLLM serving endpoint from your RHOAI namespace
+VLLM_URL=$(oc get inferenceservice llama3-70b -n rhoai-model-serving \
+  -o jsonpath='{.status.url}')
+
+helm install leasingops neio/leasingops \
+  --namespace leasingops \
+  --set global.licenseToken=$NEIO_LICENSE_TOKEN \
+  --set global.domain=leasingops.apps.your-cluster.com \
+  --set llm.url="${VLLM_URL}" \
+  --set llm.model="meta-llama/Llama-3-70b-chat-hf" \
+  --set llm.apiToken="" \
+  -f examples/values-production.yaml
+```
+
+> **RSDP deployments:** The Red Hat Solution Deployment Platform automatically injects `llm.url`, `llm.apiToken`, and `llm.model` — no manual configuration needed. See [OpenShift AI Inference](#openshift-ai-inference) for full details.
+
+### 3. Generate Pull Secret
 
 ```bash
 # Generate OpenShift pull secret for NeIO container registry
@@ -104,7 +171,7 @@ export NEIO_LICENSE_TOKEN="your-license-token"
 oc apply -f pull-secret.yaml -n leasingops
 ```
 
-### 3. Deploy with Helm
+### 4. Deploy with Helm
 
 ```bash
 # Add NeIO Helm repository
@@ -122,7 +189,7 @@ helm install leasingops neio/leasingops \
   -f examples/values-production.yaml
 ```
 
-### 4. Verify Deployment
+### 5. Verify Deployment
 
 ```bash
 # Check pod status
@@ -266,22 +333,132 @@ ai:
 | `NEIO_LICENSE_TOKEN` | NeIO license token | Yes |
 | `ANTHROPIC_API_KEY` | Anthropic API key (if using Claude) | Conditional |
 | `OPENAI_API_KEY` | OpenAI API key (if using GPT) | Conditional |
+| `LLAMASTACK_URL` | LlamaStack service URL (bundled: `http://llamastack:8321`) | Conditional |
+| `LLAMASTACK_MODEL` | Model name served by LlamaStack/Ollama (e.g. `llama3.2:3b`) | Conditional |
 | `VOYAGE_API_KEY` | Voyage AI embedding API key | Yes |
 | `DATABASE_URL` | PostgreSQL connection string | Auto-configured |
 | `REDIS_URL` | Redis connection string | Auto-configured |
 | `QDRANT_URL` | Qdrant connection string | Auto-configured |
 
+## OpenShift AI Inference
+
+NeIO LeasingOps is designed to run inference through **Red Hat OpenShift AI** as the primary path for enterprise deployments. The worker service uses **LlamaStack** as its inference layer, which connects to either a self-managed **Ollama** instance (bundled, for development/evaluation) or a production **vLLM** serving runtime deployed via OpenShift AI.
+
+### How It Works
+
+```
+leasingops-worker
+      │
+      ▼
+LlamaStack  ──────────────────────────────────────────────┐
+      │                                                    │
+      ├── Ollama (self-managed, bundled)                   │  OpenShift AI
+      │   For: local dev, air-gapped eval                  │  vLLM serving
+      │                                                    │  (production)
+      └── vLLM via OpenShift AI  ─────────────────────────┘
+          For: production, GPU-accelerated workloads
+```
+
+LlamaStack exposes an **OpenAI-compatible chat completions endpoint**. The worker calls:
+
+```
+{llm.url}/v1/openai/v1/chat/completions
+```
+
+This is the LlamaStack-specific path that proxies to the underlying vLLM or Ollama backend.
+
+### Helm Values for Inference
+
+| Helm Value | Description | Example |
+|------------|-------------|---------|
+| `llm.url` | Base URL of the LlamaStack or vLLM endpoint | `https://llama-70b.rhoai.svc.cluster.local` |
+| `llm.apiToken` | Bearer token (empty for cluster-internal endpoints) | `""` |
+| `llm.model` | Model identifier as registered in RHOAI | `meta-llama/Llama-3-70b-chat-hf` |
+| `llm.maxTokens` | Max tokens per completion | `4096` |
+| `llm.temperature` | Sampling temperature | `0.7` |
+
+### Bundled Ollama + LlamaStack (CRC / Air-Gapped / Evaluation)
+
+The chart includes Ollama and LlamaStack as in-cluster deployments. This path was validated on **CRC (OpenShift 4.14+ / CodeReady Containers)** with CPU-only inference using `llama3.2:3b`.
+
+When the chart deploys with bundled inference enabled:
+- **Ollama** runs at `http://ollama:11434`, serves `llama3.2:3b` (pulled on first start via init container)
+- **LlamaStack** runs at `http://llamastack:8321`, backed by Ollama
+- The worker connects to `http://llamastack:8321` and calls the OpenAI-compat endpoint
+
+The worker and API receive these env vars automatically from Helm:
+
+```
+LLAMASTACK_URL=http://llamastack:8321
+LLAMASTACK_MODEL=llama3.2:3b
+```
+
+No GPU required. Expect ~6–30s per agent call on CPU (varies by token count).
+
+> **Storage:** The API and worker share a `ReadWriteOnce` PVC (`leasingops-uploads`, 5Gi) for uploaded documents. OpenShift restricted SCC requires `fsGroup: 1000` in the pod security context — the chart sets this automatically.
+
+### Configuring for OpenShift AI (vLLM)
+
+1. **Deploy a model via OpenShift AI** — use the RHOAI dashboard or a `ServingRuntime` + `InferenceService` manifest to serve a Llama 3 or Mistral model with vLLM.
+
+2. **Get the inference endpoint:**
+
+   ```bash
+   oc get inferenceservice -n rhoai-model-serving
+   # Note the URL for your model, e.g.:
+   # https://llama3-70b-rhoai-model-serving.apps.your-cluster.com
+   ```
+
+3. **Install the chart pointing at OpenShift AI:**
+
+   ```bash
+   helm install leasingops neio/leasingops \
+     --namespace leasingops \
+     --set global.licenseToken=$NEIO_LICENSE_TOKEN \
+     --set global.domain=leasingops.apps.your-cluster.com \
+     --set llm.url="https://llama3-70b-rhoai-model-serving.apps.your-cluster.com" \
+     --set llm.model="meta-llama/Llama-3-8b-instruct" \
+     --set llm.apiToken="" \
+     -f examples/values-production.yaml
+   ```
+
+### RSDP Automatic Injection
+
+When deployed through the **Red Hat Solution Deployment Platform (RSDP)**, the three LLM values are automatically injected — no manual configuration is required:
+
+```yaml
+# values-rsdp.yaml (template — RSDP fills these at deploy time)
+llm:
+  url: ""        # RSDP injects the RHOAI inference endpoint
+  apiToken: ""   # RSDP injects a short-lived token
+  model: ""      # RSDP injects the registered model name
+```
+
+### Supported Models
+
+| Model | Recommended For | GPU Memory |
+|-------|-----------------|------------|
+| `llama3.2:3b` | CRC / air-gapped / CPU-only evaluation (bundled Ollama) | None (CPU) |
+| `meta-llama/Llama-3-8b-instruct` | Balanced quality/cost | 1× A100 40GB |
+| `meta-llama/Llama-3-70b-chat-hf` | Production (highest quality) | 2× A100 80GB |
+| `mistralai/Mistral-7B-Instruct-v0.3` | Resource-constrained clusters | 1× A100 40GB |
+
+For complete RHOAI architecture diagrams, integration details, and GPU operator configuration, see [docs/REDHAT_AI_INTEGRATION.md](docs/REDHAT_AI_INTEGRATION.md).
+
+---
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Installation Guide](docs/installation.md) | Detailed installation instructions |
-| [Configuration Reference](docs/configuration.md) | Complete configuration options |
-| [Architecture Overview](docs/architecture.md) | System architecture details |
-| [AI Agents Guide](docs/agents.md) | AI agent capabilities and customization |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
-| [Upgrade Guide](docs/upgrade.md) | Version upgrade procedures |
-| [Security](docs/security.md) | Security best practices |
+| [Installation Guide](docs/INSTALLATION.md) | Detailed installation instructions |
+| [Configuration Reference](docs/CONFIGURATION.md) | Complete configuration options |
+| [Architecture Overview](docs/ARCHITECTURE.md) | System architecture details |
+| [AI Agents Guide](docs/AGENTS.md) | AI agent capabilities and customization |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [Upgrade Guide](docs/UPGRADE.md) | Version upgrade procedures |
+| [Security](docs/SECURITY.md) | Security best practices |
+| [Red Hat OpenShift AI Integration](docs/REDHAT_AI_INTEGRATION.md) | RHOAI architecture and integration details |
 
 ## Support
 
