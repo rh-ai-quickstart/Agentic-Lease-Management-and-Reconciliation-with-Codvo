@@ -872,36 +872,4 @@ graph LR
 
 ---
 
-## Action Items
-
-| Action Item | Assignee | Status |
-|-------------|----------|--------|
-| Review updated architecture (v2.0) | Michael (Red Hat) | **PENDING** |
-| Complete deployment on Red Hat Partner Lab | CODVO team | IN PROGRESS |
-| Revise architecture diagrams per Michael's 9 feedback items | CODVO team | **COMPLETED v2.0** ✓ |
-| Update deck slides 5, 6, 7 with corrected diagrams | PM / Rohini | **PENDING** |
-| Create updated marketing flyer for LeasingOps | Rohini | PENDING |
-| Send Google Drive link for product demo video | Rohini | PENDING |
-| Coordinate Red Hat Summit participation | Bert | PENDING |
-
----
-
-## Red Hat Summit 2026 (May 11-14, Atlanta)
-
-### Proposed Theater Presentation
-
-**Title:** "NeIO LeasingOps: AI-Powered Digital Coworker for Equipment Leasing on OpenShift AI"
-
-**Abstract:** Demonstration of how NeIO LeasingOps leverages Red Hat OpenShift AI's Llama Stack, llm-d, and guardrails to automate aircraft lease management with 10 specialized AI agents working in concert.
-
-**Demo Flow:**
-1. Upload lease contract PDF
-2. Show Llama Stack guardrails filtering sensitive content
-3. Term extraction with confidence scores
-4. Variance detection against MRO data
-5. Decision support recommendations (return vs extend vs buyout)
-6. Human-in-the-loop escalation workflow
-
----
-
-*Document Version: 2.0 | Updated: February 5, 2026 | Status: Ready for Michael Dawson's Re-Review*
+*Document Version: 2.0 | NeIO LeasingOps on Red Hat OpenShift AI*

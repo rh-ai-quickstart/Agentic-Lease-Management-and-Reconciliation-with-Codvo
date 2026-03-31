@@ -170,7 +170,7 @@ helm repo update
 Clone this repository and install from local chart.
 
 ```bash
-git clone https://github.com/codvo-ai/neio-leasingops-quickstart.git
+git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
 cd neio-leasingops-quickstart
 ```
 
