@@ -118,7 +118,7 @@ OpenAI-compatible API gateway over vLLM. All agent LLM calls go through LlamaSta
 | **OpenAI-compat endpoint** | `POST /v1/openai/v1/chat/completions` |
 | **Deployed via** | `helm install llamastack rh-ai-quickstart/llama-stack` |
 
-> **Important:** The LlamaStack endpoint is at `/v1/openai/v1/chat/completions`, **not** `/v1/chat/completions`. The worker's `LLAMASTACK_URL` is set to `http://llamastack:8321` and the OpenAI client is configured with `base_url=http://llamastack:8321/v1/openai/v1`.
+> **Important:** The LlamaStack OpenAI-compatible endpoint is at `/v1/chat/completions` (standard path). The worker's `LLAMASTACK_URL` is set to `http://llamastack:8321` and the OpenAI client is configured with `base_url=http://llamastack:8321/v1`.
 
 ### Docling (optional)
 
@@ -263,7 +263,7 @@ ibm-granite/granite-3.3-2b-instruct  (CPU or GPU)
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI(
-    base_url="http://llamastack:8321/v1/openai/v1",
+    base_url="http://llamastack:8321/v1",
     api_key="llamastack",  # LlamaStack does not enforce API keys
 )
 
