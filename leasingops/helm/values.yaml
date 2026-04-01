@@ -45,6 +45,29 @@ global:
   affinity: {}
 
 # =============================================================================
+# LLAMASTACK CONFIGURATION
+# LlamaStack runs in-cluster at http://llamastack:8321, deployed by the
+# rh-ai-quickstart/llama-stack Helm chart. vLLM serves the model at port 8080.
+#
+# IMPORTANT: After deploying LlamaStack, register the model once:
+#   kubectl exec -n leasingops deploy/llamastack -- curl -s -X POST \
+#     http://localhost:8321/v1/models \
+#     -H "Content-Type: application/json" \
+#     -d '{"model_id":"ibm-granite/granite-3.3-2b-instruct","provider_id":"remote-llm","provider_model_id":"ibm-granite/granite-3.3-2b-instruct","model_type":"llm"}'
+#
+# LlamaStack stores the model as remote-llm/<model-id> — the LLAMASTACK_MODEL
+# value must use this prefixed form.
+# =============================================================================
+llamastack:
+  # LlamaStack service URL (in-cluster)
+  url: "http://llamastack:8321"
+  # Model ID as registered in LlamaStack (provider prefix required)
+  model: "remote-llm/ibm-granite/granite-3.3-2b-instruct"
+  # Max tokens — keep at 2048 to stay within 8192-token context window
+  # (Granite 3.3 2B: 8192 total; agent prompts consume ~4-5k input tokens)
+  maxTokens: "2048"
+
+# =============================================================================
 # RSDP LLM CONFIGURATION
 # RSDP injects these three values during helm install via --set or a values file.
 # The application reads LLM_URL / LLM_API_TOKEN / LLM_MODEL at runtime.
@@ -96,7 +119,8 @@ app:
   # Health check probes
   livenessProbe:
     httpGet:
-      path: /health
+      # Next.js does not expose /health — use root path
+      path: /
       port: 3000
     initialDelaySeconds: 30
     periodSeconds: 10
@@ -105,7 +129,7 @@ app:
 
   readinessProbe:
     httpGet:
-      path: /health
+      path: /
       port: 3000
     initialDelaySeconds: 5
     periodSeconds: 5
@@ -185,7 +209,7 @@ api:
   livenessProbe:
     httpGet:
       path: /health
-      port: 8000
+      port: 8001
     initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
@@ -194,7 +218,7 @@ api:
   readinessProbe:
     httpGet:
       path: /health
-      port: 8000
+      port: 8001
     initialDelaySeconds: 10
     periodSeconds: 5
     timeoutSeconds: 3
@@ -203,8 +227,14 @@ api:
   # Service configuration
   service:
     type: ClusterIP
-    port: 8000
-    targetPort: 8000
+    port: 8001
+    targetPort: 8001
+
+  # Pod security context — fsGroup 1000 required for shared PVC access
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
 
   # Route configuration (OpenShift)
   route:
@@ -301,15 +331,27 @@ worker:
     timeoutSeconds: 10
     failureThreshold: 3
 
-  # Environment variables (inherits from api.env)
-  env:
-    WORKER_CONCURRENCY: "4"
-    WORKER_QUEUE: "default,documents,ai"
+  # Pod security context — fsGroup 1000 required for shared uploads PVC
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
 
   # Pod disruption budget
   pdb:
     enabled: true
     minAvailable: 1
+
+# =============================================================================
+# UPLOADS PVC
+# Shared persistent volume for uploaded PDFs — mounted by both API and worker.
+# =============================================================================
+uploads:
+  # Name of the PVC to use (created separately or by this chart)
+  pvcName: "leasingops-uploads"
+  # Storage class — use gp3-csi on OpenShift/AWS, standard on vanilla K8s
+  storageClass: "gp3-csi"
+  size: "5Gi"
 
 # =============================================================================
 # AI CONFIGURATION

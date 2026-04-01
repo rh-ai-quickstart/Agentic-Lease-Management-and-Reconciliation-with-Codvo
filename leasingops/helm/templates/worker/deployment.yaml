@@ -44,34 +44,51 @@ spec:
           image: "{{ .Values.worker.image.repository | default .Values.api.image.repository }}:{{ .Values.worker.image.tag | default .Values.api.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy | default .Values.api.image.pullPolicy | default "IfNotPresent" }}
 
-          # Worker-specific command
+          # Worker-specific command — runs worker.py directly (not as a module)
           command:
             {{- if .Values.worker.command }}
             {{- toYaml .Values.worker.command | nindent 12 }}
             {{- else }}
             - python
-            - -m
-            - app.worker
+            - worker.py
             {{- end }}
 
+          {{- if .Values.worker.args }}
           args:
-            {{- if .Values.worker.args }}
             {{- toYaml .Values.worker.args | nindent 12 }}
-            {{- else }}
-            {{- $workerConcurrency := .Values.worker.concurrency | default ((.Values.worker.env).WORKER_CONCURRENCY) | default "4" }}
-            {{- $workerQueue := "" }}
-            {{- if and .Values.worker.queue .Values.worker.queue.name }}
-            {{- $workerQueue = .Values.worker.queue.name }}
-            {{- else if .Values.worker.env }}
-            {{- $workerQueue = .Values.worker.env.WORKER_QUEUE | default "default,documents,ai" }}
-            {{- else }}
-            {{- $workerQueue = "default,documents,ai" }}
-            {{- end }}
-            - --concurrency={{ $workerConcurrency }}
-            - --queue={{ $workerQueue }}
-            {{- end }}
+          {{- end }}
 
           env:
+            # Constructed connection URLs (required by leasingops config.py)
+            - name: LEASINGOPS_DATABASE_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
+
+            # LlamaStack inference configuration
+            - name: LLAMASTACK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: LLAMASTACK_URL
+                  optional: true
+            - name: LLAMASTACK_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: LLAMASTACK_MODEL
+                  optional: true
+            - name: LLM_MAX_TOKENS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: LLM_MAX_TOKENS
+                  optional: true
+
+            # Uploads directory
+            - name: UPLOADS_DIR
+              value: "/app/uploads"
+
             # Application Configuration
             - name: UIP_SOLUTIONS
               valueFrom:
@@ -282,6 +299,8 @@ spec:
               mountPath: /tmp
             - name: work-volume
               mountPath: /app/work
+            - name: uploads
+              mountPath: /app/uploads
             {{- if .Values.worker.extraVolumeMounts }}
             {{- toYaml .Values.worker.extraVolumeMounts | nindent 12 }}
             {{- end }}
@@ -295,6 +314,9 @@ spec:
         - name: work-volume
           emptyDir:
             sizeLimit: {{ .Values.worker.workVolumeSizeLimit | default "2Gi" }}
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ .Values.uploads.pvcName | default "leasingops-uploads" }}
         {{- if .Values.worker.extraVolumes }}
         {{- toYaml .Values.worker.extraVolumes | nindent 8 }}
         {{- end }}
