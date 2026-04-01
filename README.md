@@ -178,6 +178,7 @@ helm repo add rh-ai-quickstart https://rh-ai-quickstart.github.io/ai-architectur
 helm repo update
 
 # Deploy vLLM serving Granite 3.3 2B (CPU cluster)
+oc new-project leasingops
 helm install llm-inference rh-ai-quickstart/llm-service \
   --namespace leasingops \
   --set device=cpu \
@@ -189,9 +190,28 @@ helm install llm-inference rh-ai-quickstart/llm-service \
   --set "models.granite-3-3-2b-instruct.resources.limits.cpu=8" \
   --set "models.granite-3-3-2b-instruct.resources.limits.memory=16Gi"
 
+
+Or on a GPU where you will need to set the toleration to match the nodes in your
+cluster that have GPUs:
+
+ helm install llm-inference rh-ai-quickstart/llm-service \
+    --namespace leasingops \
+    --set device=gpu \
+    --set "models.granite-3-3-2b-instruct.enabled=true" \
+    --set "models.granite-3-3-2b-instruct.id=ibm-granite/granite-3.3-2b-instruct" \
+    --set "models.granite-3-3-2b-instruct.device=gpu" \
+    --set "models.granite-3-3-2b-instruct.resources.requests.memory=16Gi" \
+    --set "models.granite-3-3-2b-instruct.resources.limits.memory=16Gi" \
+    --set "models.granite-3-3-2b-instruct.resources.limits.nvidia\.com/gpu=1" \
+    --set "models.granite-3-3-2b-instruct.tolerations[0].key=g5-gpu" \
+    --set "models.granite-3-3-2b-instruct.tolerations[0].operator=Equal" \
+    --set-string "models.granite-3-3-2b-instruct.tolerations[0].value=true" \
+    --set "models.granite-3-3-2b-instruct.tolerations[0].effect=NoSchedule"
+
 # Deploy LlamaStack (API layer over vLLM)
 helm install llamastack rh-ai-quickstart/llama-stack \
   --namespace leasingops \
+  --set pgvector.enabled=false \
   --set "models.remote-llm.enabled=true" \
   --set "models.remote-llm.url=http://granite-3-3-2b-instruct-vllm/v1"
 ```
@@ -202,29 +222,6 @@ oc rollout status deploy/llamastack -n leasingops --timeout=600s
 oc get svc llamastack -n leasingops
 # → llamastack:8321 (cluster-internal)
 ```
-
-#### Step 3 — Install NeIO LeasingOps pointing at LlamaStack
-
-```bash
-# Clone this repository if you haven't already
-git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
-cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
-
-helm install leasingops ./leasingops/helm \
-  --namespace leasingops \
-  --set global.licenseToken=$NEIO_LICENSE_TOKEN \
-  --set global.domain=leasingops.apps.your-cluster.com \
-  --set llm.url="http://llamastack:8321/v1/openai/v1" \
-  --set llm.model="ibm-granite/granite-3.3-2b-instruct" \
-  --set llm.apiToken="" \
-  -f leasingops/helm/values-openshift.yaml
-```
-
-> **GPU clusters:** Replace `device=cpu` with `device=gpu` for significantly faster inference. Model ID stays the same.
-
-> **Larger Granite models:** For higher quality, use `ibm-granite/granite-3.3-8b-instruct` — same open license, requires ~20Gi RAM.
-
-> **RSDP deployments:** The Red Hat Solution Deployment Platform automatically injects `llm.url`, `llm.apiToken`, and `llm.model` — no manual configuration needed. See [OpenShift AI Inference](#openshift-ai-inference) for full details.
 
 ### 3. Generate Pull Secret
 
@@ -244,9 +241,6 @@ oc create secret docker-registry acr-secret \
   --docker-password=<acr-password> \
   -n leasingops
 
-# Or use the provided script (requires credentials in env)
-./scripts/generate-pull-secret.sh
-oc apply -f pull-secret.yaml -n leasingops
 ```
 
 ### 4. Deploy with Helm
@@ -255,9 +249,6 @@ oc apply -f pull-secret.yaml -n leasingops
 # Clone this repository if you haven't already
 git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
 cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
-
-# Create namespace
-oc new-project leasingops
 
 # Install the chart from local path
 helm install leasingops ./leasingops/helm \
