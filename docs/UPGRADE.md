@@ -23,17 +23,17 @@ This document describes how to upgrade NeIO LeasingOps to a new chart version.
 For patch releases (1.0.x) and minor releases (1.x.0) with no breaking changes:
 
 ```bash
-# Update the Helm repository
-helm repo update
+# Pull latest chart from git first
+git -C Agentic-Lease-Management-and-Reconciliation-with-Codvo pull
 
 # Preview changes (dry run)
-helm upgrade leasingops neio/leasingops \
+helm upgrade leasingops ./leasingops/helm \
   --namespace leasingops \
   --dry-run \
   -f your-values.yaml
 
 # Apply the upgrade
-helm upgrade leasingops neio/leasingops \
+helm upgrade leasingops ./leasingops/helm \
   --namespace leasingops \
   -f your-values.yaml
 ```
@@ -51,7 +51,7 @@ Major upgrades (X.Y → X+1.0) may include database schema migrations. The API p
 oc scale deploy/leasingops-worker --replicas=0 -n leasingops
 
 # 2. Run the upgrade
-helm upgrade leasingops neio/leasingops \
+helm upgrade leasingops ./leasingops/helm \
   --namespace leasingops \
   --set worker.runMigrations=true \
   -f your-values.yaml

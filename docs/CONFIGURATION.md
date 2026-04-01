@@ -30,10 +30,10 @@ global:
 
   # Image pull secrets for NeIO registry
   imagePullSecrets:
-    - neio-pull-secret
+    - acr-secret
 
   # Image registry override
-  imageRegistry: "registry.neio.ai"
+  imageRegistry: "rhleasingopsacr.azurecr.io"
 
   # Common labels applied to all resources
   labels: {}
@@ -76,7 +76,7 @@ app:
 
   # Image configuration
   image:
-    repository: registry.neio.ai/leasingops/app
+    repository: rhleasingopsacr.azurecr.io/leasingops-app
     tag: ""  # Defaults to Chart.appVersion
     pullPolicy: IfNotPresent
 
@@ -185,7 +185,7 @@ api:
 
   # Image configuration
   image:
-    repository: registry.neio.ai/leasingops/api
+    repository: rhleasingopsacr.azurecr.io/leasingops-api
     tag: ""
     pullPolicy: IfNotPresent
 
@@ -273,7 +273,7 @@ worker:
 
   # Image configuration
   image:
-    repository: registry.neio.ai/leasingops/worker
+    repository: rhleasingopsacr.azurecr.io/leasingops-worker
     tag: ""
     pullPolicy: IfNotPresent
 

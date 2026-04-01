@@ -142,14 +142,18 @@ oc get svc llamastack -n leasingops
 #### Step 2 — Install NeIO LeasingOps pointing at LlamaStack
 
 ```bash
-helm install leasingops neio/leasingops \
+# Clone this repository if you haven't already
+git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
+cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
+
+helm install leasingops ./leasingops/helm \
   --namespace leasingops \
   --set global.licenseToken=$NEIO_LICENSE_TOKEN \
   --set global.domain=leasingops.apps.your-cluster.com \
   --set llm.url="http://llamastack:8321" \
   --set llm.model="meta-llama/Llama-3.2-3B-Instruct" \
   --set llm.apiToken="" \
-  -f examples/values-production.yaml
+  -f leasingops/helm/values-openshift.yaml
 ```
 
 > **Larger models:** With GPU nodes, switch to `meta-llama/Llama-3-8b-instruct` or `meta-llama/Llama-3-70b-chat-hf` for better quality — just change `--set llm.model=` and redeploy the `llm-service` chart with the appropriate model enabled.
@@ -182,19 +186,19 @@ oc apply -f pull-secret.yaml -n leasingops
 ### 4. Deploy with Helm
 
 ```bash
-# Add NeIO Helm repository
-helm repo add neio https://charts.neio.ai
-helm repo update
+# Clone this repository if you haven't already
+git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
+cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 
 # Create namespace
 oc new-project leasingops
 
-# Install the chart
-helm install leasingops neio/leasingops \
+# Install the chart from local path
+helm install leasingops ./leasingops/helm \
   --namespace leasingops \
   --set global.licenseToken=$NEIO_LICENSE_TOKEN \
   --set global.domain=leasingops.apps.your-cluster.com \
-  -f examples/values-production.yaml
+  -f leasingops/helm/values-openshift.yaml
 ```
 
 ### 5. Verify Deployment

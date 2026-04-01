@@ -87,7 +87,7 @@ export NEIO_LICENSE_TOKEN="your-token-here"
 
 | Protocol | Port | Source | Destination | Purpose |
 |----------|------|--------|-------------|---------|
-| HTTPS | 443 | Cluster | registry.neio.ai | Image pull |
+| HTTPS | 443 | Cluster | rhleasingopsacr.azurecr.io | Image pull |
 | HTTPS | 443 | Cluster | api.anthropic.com | LLM API |
 | HTTPS | 443 | Cluster | api.openai.com | LLM API (optional) |
 | HTTPS | 443 | Cluster | api.voyageai.com | Embeddings |
@@ -145,7 +145,7 @@ oc adm top nodes
 ```bash
 # Test registry access (from a debug pod)
 oc run network-test --image=curlimages/curl --rm -it --restart=Never -- \
-  curl -s -o /dev/null -w "%{http_code}" https://registry.neio.ai/v2/
+  curl -s -o /dev/null -w "%{http_code}" https://rhleasingopsacr.azurecr.io/v2/
 
 # Test LLM API access
 oc run network-test --image=curlimages/curl --rm -it --restart=Never -- \
@@ -156,27 +156,18 @@ oc run network-test --image=curlimages/curl --rm -it --restart=Never -- \
 
 ## Installation Methods
 
-### Method 1: Helm Repository (Recommended)
+### Method 1: Local Chart (Recommended)
 
-Install from the official NeIO Helm repository.
-
-```bash
-helm repo add neio https://charts.neio.ai
-helm repo update
-```
-
-### Method 2: Local Chart
-
-Clone this repository and install from local chart.
+Clone this repository and install from the local Helm chart.
 
 ```bash
 git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
-cd neio-leasingops-quickstart
+cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 ```
 
-### Method 3: GitOps (ArgoCD)
+### Method 2: GitOps (ArgoCD)
 
-Deploy via ArgoCD for GitOps workflows. See [examples/argocd/](../examples/argocd/).
+Deploy via ArgoCD using the chart at `./leasingops/helm` in this repository.
 
 ---
 
@@ -197,31 +188,18 @@ oc label namespace leasingops \
 
 ### Step 2: Generate Pull Secret
 
-The pull secret allows OpenShift to pull images from the NeIO registry.
+The pull secret allows OpenShift to pull images from the NeIO container registry at `rhleasingopsacr.azurecr.io`. Contact bala@codvo.ai or indranil@codvo.ai to request registry credentials.
 
 ```bash
-# Set your license token
-export NEIO_LICENSE_TOKEN="your-license-token"
-
-# Generate the pull secret
-./scripts/generate-pull-secret.sh
-
-# Apply to namespace
-oc apply -f pull-secret.yaml -n leasingops
+# Create the pull secret
+oc create secret docker-registry acr-secret \
+  --docker-server=rhleasingopsacr.azurecr.io \
+  --docker-username=<acr-username> \
+  --docker-password=<acr-password> \
+  -n leasingops
 
 # Verify
-oc get secret neio-pull-secret -n leasingops
-```
-
-**Manual pull secret creation:**
-
-```bash
-# Create dockerconfigjson
-oc create secret docker-registry neio-pull-secret \
-  --docker-server=registry.neio.ai \
-  --docker-username=license \
-  --docker-password=$NEIO_LICENSE_TOKEN \
-  -n leasingops
+oc get secret acr-secret -n leasingops
 ```
 
 ### Step 3: Configure Secrets
@@ -249,8 +227,8 @@ oc get secrets -n leasingops
 Create a custom values file for your environment.
 
 ```bash
-# Copy the example values file
-cp examples/values-production.yaml my-values.yaml
+# Copy the OpenShift values file
+cp leasingops/helm/values-openshift.yaml my-values.yaml
 ```
 
 **Edit `my-values.yaml`:**
@@ -268,7 +246,7 @@ global:
 
   # Image pull secrets
   imagePullSecrets:
-    - neio-pull-secret
+    - acr-secret
 
 # Application configuration
 app:
@@ -303,18 +281,6 @@ ai:
 ```
 
 ### Step 5: Install the Chart
-
-**From Helm repository:**
-
-```bash
-helm install leasingops neio/leasingops \
-  --namespace leasingops \
-  -f my-values.yaml \
-  --wait \
-  --timeout 10m
-```
-
-**From local chart:**
 
 ```bash
 helm install leasingops ./leasingops/helm \
@@ -468,30 +434,28 @@ curl -X POST https://$ROUTE_URL/api/v1/chat \
 
 2. **Review release notes**
    ```bash
-   helm search repo neio/leasingops --versions
+   # Pull latest chart from git
+   git -C Agentic-Lease-Management-and-Reconciliation-with-Codvo pull
    ```
 
 3. **Compare values**
    ```bash
    helm get values leasingops -n leasingops > current-values.yaml
-   helm show values neio/leasingops > new-default-values.yaml
+   helm show values ./leasingops/helm > new-default-values.yaml
    diff current-values.yaml new-default-values.yaml
    ```
 
 ### Upgrade Steps
 
 ```bash
-# Update Helm repository
-helm repo update
-
 # Dry-run upgrade to preview changes
-helm upgrade leasingops neio/leasingops \
+helm upgrade leasingops ./leasingops/helm \
   --namespace leasingops \
   -f my-values.yaml \
   --dry-run
 
 # Perform the upgrade
-helm upgrade leasingops neio/leasingops \
+helm upgrade leasingops ./leasingops/helm \
   --namespace leasingops \
   -f my-values.yaml \
   --wait \
