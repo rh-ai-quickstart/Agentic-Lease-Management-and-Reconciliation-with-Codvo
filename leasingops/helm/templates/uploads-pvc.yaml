@@ -1,0 +1,19 @@
+{{- if .Values.uploads }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.uploads.pvcName | default "leasingops-uploads" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: uploads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.uploads.size | default "5Gi" }}
+  {{- if .Values.uploads.storageClass }}
+  storageClassName: {{ .Values.uploads.storageClass }}
+  {{- end }}
+{{- end }}

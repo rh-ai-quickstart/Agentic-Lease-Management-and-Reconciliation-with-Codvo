@@ -37,7 +37,7 @@ data:
   {{- else if and .Values.cache .Values.cache.host }}
   {{- $redisHost = .Values.cache.host }}
   {{- else }}
-  {{- $redisHost = printf "%s-redis-master" (include "neio-leasingops.fullname" .) }}
+  {{- $redisHost = "redis" }}
   {{- end }}
   REDIS_HOST: {{ $redisHost | quote }}
   REDIS_PORT: {{ ((.Values.cache).external).port | default ((.Values.cache).port) | default "6379" | quote }}
@@ -78,12 +78,21 @@ data:
   {{- end }}
 
   # =============================================================================
+  # LlamaStack / in-cluster vLLM configuration
+  # LlamaStack runs at http://llamastack:8321 (deployed by rh-ai-quickstart/llama-stack chart)
+  # The model is registered in LlamaStack with a provider prefix: remote-llm/<model-id>
+  # =============================================================================
+  LLAMASTACK_URL: {{ .Values.llamastack.url | default "http://llamastack:8321" | quote }}
+  LLAMASTACK_MODEL: {{ .Values.llamastack.model | default "remote-llm/ibm-granite/granite-3.3-2b-instruct" | quote }}
+  # Max tokens capped at 2048 — Granite 3.3 2B has 8192 context; prompts use ~4-5k tokens
+  LLM_MAX_TOKENS: {{ .Values.llamastack.maxTokens | default "2048" | quote }}
+
+  # =============================================================================
   # RSDP LLM Configuration (llm.url / llm.model injected by RSDP platform)
   # =============================================================================
   {{- if .Values.llm }}
   LLM_URL: {{ .Values.llm.url | default "" | quote }}
   LLM_MODEL: {{ .Values.llm.model | default "" | quote }}
-  LLM_MAX_TOKENS: {{ .Values.llm.maxTokens | default "4096" | quote }}
   LLM_TEMPERATURE: {{ .Values.llm.temperature | default "0.7" | quote }}
   LLM_API_PATH: {{ .Values.llm.apiPath | default "/v1/chat/completions" | quote }}
   {{- end }}

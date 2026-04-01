@@ -49,9 +49,19 @@ spec:
           imagePullPolicy: {{ .Values.api.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: http
-              containerPort: 8000
+              containerPort: 8001
               protocol: TCP
           env:
+            # Constructed connection URLs (required by leasingops config.py)
+            - name: LEASINGOPS_DATABASE_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
+
+            # Uploads directory
+            - name: UPLOADS_DIR
+              value: "/app/uploads"
+
             # Application Configuration
             - name: UIP_SOLUTIONS
               valueFrom:
@@ -219,7 +229,7 @@ spec:
 
           livenessProbe:
             httpGet:
-              path: /health
+              path: {{ .Values.api.livenessProbe.path | default "/health" }}
               port: http
             initialDelaySeconds: {{ .Values.api.livenessProbe.initialDelaySeconds | default 30 }}
             periodSeconds: {{ .Values.api.livenessProbe.periodSeconds | default 10 }}
@@ -228,7 +238,7 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /health
+              path: {{ .Values.api.readinessProbe.path | default "/health" }}
               port: http
             initialDelaySeconds: {{ .Values.api.readinessProbe.initialDelaySeconds | default 10 }}
             periodSeconds: {{ .Values.api.readinessProbe.periodSeconds | default 5 }}
@@ -249,6 +259,8 @@ spec:
               readOnly: true
             - name: tmp-volume
               mountPath: /tmp
+            - name: uploads
+              mountPath: /app/uploads
             {{- if .Values.api.extraVolumeMounts }}
             {{- toYaml .Values.api.extraVolumeMounts | nindent 12 }}
             {{- end }}
@@ -259,6 +271,9 @@ spec:
             name: {{ include "neio-leasingops.fullname" . }}-api-config
         - name: tmp-volume
           emptyDir: {}
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ .Values.uploads.pvcName | default "leasingops-uploads" }}
         {{- if .Values.api.extraVolumes }}
         {{- toYaml .Values.api.extraVolumes | nindent 8 }}
         {{- end }}
