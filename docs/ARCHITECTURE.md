@@ -19,8 +19,8 @@ graph TB
         DOCLING[docling<br/>Document parsing · Port 5001]
 
         subgraph RHAI["In-cluster Inference (RHAI)"]
-            OLLAMA[ollama<br/>Port 11434<br/>llama3.2:3b]
-            LS[llamastack<br/>Port 8321<br/>distribution-ollama]
+            VLLM[vllm<br/>Port 8080<br/>ibm-granite/granite-3.3-2b-instruct]
+            LS[llamastack<br/>Port 8321<br/>distribution-starter]
         end
 
         PVC[(leasingops-uploads<br/>5Gi PVC<br/>API + Worker shared)]
@@ -93,30 +93,32 @@ Background processor. Polls Redis job queues and drives each document through th
 | **Queue pattern** | Redis BRPOP on `leasingops:jobs:pending:{job_type}` |
 | **Status key** | `leasingops:status:{doc_id}` (Redis hash) |
 
-### Ollama
+### vLLM (llm-service arch chart)
 
-Runs the language model on CPU (or GPU if available). Pre-pulls `llama3.2:3b` via init container on first start.
-
-| | |
-|---|---|
-| **Image** | `docker.io/ollama/ollama:latest` |
-| **Port** | 11434 |
-| **Model** | `llama3.2:3b` (init container: `ollama pull llama3.2:3b`) |
-| **Storage** | `ollama-models` PVC (10Gi) at `/root/.ollama` |
-| **GPU** | Auto-detected. When a GPU node is available, Ollama uses it without config changes. |
-
-### LlamaStack (distribution-ollama)
-
-OpenAI-compatible API gateway over Ollama. All agent LLM calls go through LlamaStack.
+Runs the language model via vLLM, deployed by the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts). Serves `ibm-granite/granite-3.3-2b-instruct` by default — an Apache 2.0 open model from IBM Research, no Hugging Face token required.
 
 | | |
 |---|---|
-| **Image** | `docker.io/llamastack/distribution-ollama:latest` |
+| **Image (CPU)** | `quay.io/ecosystem-appeng/vllm:cpu-v0.9.2` |
+| **Image (GPU)** | `vllm/vllm-openai:v0.11.1` |
+| **Port** | 8080 |
+| **Model** | `ibm-granite/granite-3.3-2b-instruct` |
+| **Service name** | `granite-3-3-2b-instruct-vllm` |
+| **Deployed via** | `helm install llm-inference rh-ai-quickstart/llm-service` |
+
+### LlamaStack (llama-stack arch chart)
+
+OpenAI-compatible API gateway over vLLM. All agent LLM calls go through LlamaStack. Deployed by the arch charts using `distribution-starter`.
+
+| | |
+|---|---|
+| **Image** | `llamastack/distribution-starter:0.6.0` |
 | **Port** | 8321 |
-| **Ollama backend** | `http://ollama:11434` |
+| **vLLM backend** | `http://granite-3-3-2b-instruct-vllm/v1` |
 | **OpenAI-compat endpoint** | `POST /v1/openai/v1/chat/completions` |
+| **Deployed via** | `helm install llamastack rh-ai-quickstart/llama-stack` |
 
-> **Important:** The LlamaStack distribution-ollama image exposes the OpenAI-compatible endpoint at `/v1/openai/v1/chat/completions`, **not** `/v1/chat/completions`. The worker's `LLAMASTACK_URL` is set to `http://llamastack:8321` and the OpenAI client is configured with `base_url=http://llamastack:8321/v1/openai/v1`.
+> **Important:** The LlamaStack endpoint is at `/v1/openai/v1/chat/completions`, **not** `/v1/chat/completions`. The worker's `LLAMASTACK_URL` is set to `http://llamastack:8321` and the OpenAI client is configured with `base_url=http://llamastack:8321/v1/openai/v1`.
 
 ### Docling (optional)
 
@@ -238,14 +240,14 @@ leasingops-worker
         │
         │  POST /v1/openai/v1/chat/completions
         ▼
-llamastack:8321  (distribution-ollama)
+llamastack:8321  (distribution-starter)
         │
-        │  Ollama API
+        │  vLLM OpenAI API
         ▼
-ollama:11434
+granite-3-3-2b-instruct-vllm:8080
         │
         ▼
-llama3.2:3b  (CPU, or GPU if available)
+ibm-granite/granite-3.3-2b-instruct  (CPU or GPU)
 ```
 
 **Worker env vars:**
@@ -253,7 +255,7 @@ llama3.2:3b  (CPU, or GPU if available)
 | Variable | Value | Description |
 |----------|-------|-------------|
 | `LLAMASTACK_URL` | `http://llamastack:8321` | LlamaStack service (in-cluster) |
-| `LLAMASTACK_MODEL` | `llama3.2:3b` | Model name as registered in Ollama |
+| `LLAMASTACK_MODEL` | `ibm-granite/granite-3.3-2b-instruct` | Model ID as registered in vLLM |
 
 **LLM call code pattern:**
 
@@ -266,7 +268,7 @@ client = AsyncOpenAI(
 )
 
 response = await client.chat.completions.create(
-    model="llama3.2:3b",
+    model="ibm-granite/granite-3.3-2b-instruct",
     messages=[...],
     temperature=0.1,
     max_tokens=4096,
@@ -288,8 +290,8 @@ All components deploy into the **`leasingops`** namespace.
 | leasingops-app | 1 | 100m CPU / 500m · 256Mi / 512Mi |
 | leasingops-api | 1 | 200m CPU / 1000m · 512Mi / 1Gi |
 | leasingops-worker | 1 | 200m CPU / 1000m · 512Mi / 2Gi |
-| ollama | 1 | 200m CPU / 2000m · 256Mi / 4Gi |
-| llamastack | 1 | 100m CPU / 500m · 512Mi / 1Gi |
+| vllm (granite-3-3-2b-instruct) | 1 | 4 CPU / 8 · 8Gi / 16Gi |
+| llamastack | 1 | 100m CPU / 500m · 256Mi / 1Gi |
 | docling | 1 (optional) | — |
 
 ### Storage
@@ -297,7 +299,6 @@ All components deploy into the **`leasingops`** namespace.
 | PVC | Size | Access | Mounted by |
 |-----|------|--------|------------|
 | `leasingops-uploads` | 5Gi | ReadWriteOnce | api, worker |
-| `ollama-models` | 10Gi | ReadWriteOnce | ollama |
 
 ### Routes (TLS edge termination)
 
@@ -319,22 +320,22 @@ All sensitive values live in the `leasingops-secrets` Secret:
 
 ---
 
-## Production Path (GPU / RHOAI)
+## Production Path (GPU)
 
-The deployment above was validated on CRC (CPU-only, `llama3.2:3b`). For production with GPU:
+Switch to GPU by changing `device=cpu` to `device=gpu` in the `llm-inference` Helm release. Same model, same LlamaStack config — no application changes required.
 
-1. **Same stack, bigger model** — Ollama auto-detects GPU. Switch `LLAMASTACK_MODEL` to `llama3.1:8b` or `llama3.1:70b`. No other changes required.
+For higher quality, upgrade to `ibm-granite/granite-3.3-8b-instruct`:
 
-2. **Red Hat OpenShift AI (vLLM)** — Replace the bundled Ollama+LlamaStack with an RHOAI-managed vLLM serving runtime. Set `LLAMASTACK_URL` to the RHOAI inference endpoint. The worker code is unchanged — it calls the same OpenAI-compatible API.
+```bash
+helm upgrade llm-inference rh-ai-quickstart/llm-service \
+  --namespace leasingops \
+  --set device=gpu \
+  --set "models.granite-3-3-8b-instruct.enabled=true" \
+  --set "models.granite-3-3-8b-instruct.id=ibm-granite/granite-3.3-8b-instruct" \
+  --set "models.granite-3-3-8b-instruct.device=gpu"
+```
 
-   ```bash
-   VLLM_URL=$(oc get inferenceservice llama3-70b -n rhoai-model-serving \
-     -o jsonpath='{.status.url}')
-   # Set LLAMASTACK_URL=$VLLM_URL in leasingops-secrets
-   # Update LLAMASTACK_MODEL=meta-llama/Llama-3-70b-chat-hf
-   ```
-
-3. **RSDP deployments** — `llm.url`, `llm.apiToken`, and `llm.model` are injected automatically by RSDP. No manual configuration needed.
+**RSDP deployments** — `llm.url`, `llm.apiToken`, and `llm.model` are injected automatically by RSDP. No manual configuration needed.
 
 ---
 
@@ -348,4 +349,4 @@ The deployment above was validated on CRC (CPU-only, `llama3.2:3b`). For product
 
 ---
 
-*NeIO LeasingOps | Validated on OpenShift 4.14+ (CRC) with llama3.2:3b*
+*NeIO LeasingOps | vLLM + LlamaStack via Red Hat AI Architecture Charts | Model: ibm-granite/granite-3.3-2b-instruct*
