@@ -275,7 +275,7 @@ leasingops-api-xxx                0/1     ImagePullBackOff   0          5m
 oc describe pod <pod-name> -n leasingops | grep -A 5 "Failed to pull"
 
 # Check pull secret exists
-oc get secret neio-pull-secret -n leasingops
+oc get secret acr-secret -n leasingops
 
 # Verify pull secret is linked to service account
 oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
@@ -285,27 +285,30 @@ oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
 
 1. **Pull Secret Does Not Exist**
    ```bash
-   # Regenerate pull secret
-   ./scripts/generate-pull-secret.sh
-   oc apply -f pull-secret.yaml -n leasingops
+   # Create pull secret (contact bala@codvo.ai for credentials)
+   oc create secret docker-registry acr-secret \
+     --docker-server=rhleasingopsacr.azurecr.io \
+     --docker-username=<acr-username> \
+     --docker-password=<acr-password> \
+     -n leasingops
    ```
 
 2. **Pull Secret Not Linked**
    ```bash
    # Link secret to service account
-   oc secrets link default neio-pull-secret --for=pull -n leasingops
+   oc secrets link default acr-secret --for=pull -n leasingops
 
    # Or add to deployment
    oc patch deployment leasingops-api -n leasingops \
-     -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"neio-pull-secret"}]}}}}'
+     -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
    ```
 
 3. **Invalid Credentials**
    ```bash
    # Test pull secret manually
-   oc run test-pull --image=registry.neio.ai/leasingops/api:latest \
+   oc run test-pull --image=rhleasingopsacr.azurecr.io/leasingops-api:latest \
      --restart=Never --rm -it \
-     --overrides='{"spec":{"imagePullSecrets":[{"name":"neio-pull-secret"}]}}' \
+     --overrides='{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}' \
      -n leasingops -- echo "Pull successful"
    ```
 
@@ -313,7 +316,7 @@ oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
    ```bash
    # Test network connectivity
    oc run network-test --image=curlimages/curl --rm -it --restart=Never -n leasingops -- \
-     curl -s -o /dev/null -w "%{http_code}" https://registry.neio.ai/v2/
+     curl -s -o /dev/null -w "%{http_code}" https://rhleasingopsacr.azurecr.io/v2/
    ```
 
 ---

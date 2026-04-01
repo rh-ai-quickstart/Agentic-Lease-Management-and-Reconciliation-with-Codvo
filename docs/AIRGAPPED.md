@@ -27,8 +27,8 @@ An air-gapped deployment requires:
 ```mermaid
 graph TB
     subgraph "Connected Environment"
-        NEIO_REG[registry.neio.ai]
-        HELM_REPO[charts.neio.ai]
+        NEIO_REG[rhleasingopsacr.azurecr.io]
+        HELM_REPO[GitHub QuickStart Repo]
         MODEL_HUB[HuggingFace Hub]
     end
 
@@ -89,9 +89,9 @@ Create a file listing all required images:
 
 ```bash
 # images.txt
-registry.neio.ai/leasingops/app:1.0.0
-registry.neio.ai/leasingops/api:1.0.0
-registry.neio.ai/leasingops/worker:1.0.0
+rhleasingopsacr.azurecr.io/leasingops-app:1.0.0
+rhleasingopsacr.azurecr.io/leasingops-api:1.0.0
+rhleasingopsacr.azurecr.io/leasingops-worker:1.0.0
 docker.io/bitnami/postgresql:16
 docker.io/bitnami/redis:7.2
 docker.io/qdrant/qdrant:v1.7.4
@@ -107,7 +107,7 @@ quay.io/modh/vllm:latest
 #!/bin/bash
 # mirror-images.sh
 
-SOURCE_REGISTRY="registry.neio.ai"
+SOURCE_REGISTRY="rhleasingopsacr.azurecr.io"
 TARGET_REGISTRY="internal-registry.example.com"
 NEIO_TOKEN="${NEIO_LICENSE_TOKEN}"
 
@@ -118,7 +118,7 @@ skopeo login ${SOURCE_REGISTRY} -u license -p ${NEIO_TOKEN}
 while read image; do
     src_image="${image}"
     # Replace source registry with target
-    dst_image=$(echo ${image} | sed "s|registry.neio.ai|${TARGET_REGISTRY}|g")
+    dst_image=$(echo ${image} | sed "s|rhleasingopsacr.azurecr.io|${TARGET_REGISTRY}|g")
     dst_image=$(echo ${dst_image} | sed "s|docker.io|${TARGET_REGISTRY}|g")
     dst_image=$(echo ${dst_image} | sed "s|quay.io|${TARGET_REGISTRY}|g")
 
@@ -141,9 +141,9 @@ storageConfig:
     path: ./mirror-data
 mirror:
   additionalImages:
-    - name: registry.neio.ai/leasingops/app:1.0.0
-    - name: registry.neio.ai/leasingops/api:1.0.0
-    - name: registry.neio.ai/leasingops/worker:1.0.0
+    - name: rhleasingopsacr.azurecr.io/leasingops-app:1.0.0
+    - name: rhleasingopsacr.azurecr.io/leasingops-api:1.0.0
+    - name: rhleasingopsacr.azurecr.io/leasingops-worker:1.0.0
     - name: docker.io/bitnami/postgresql:16
     - name: docker.io/bitnami/redis:7.2
     - name: docker.io/qdrant/qdrant:v1.7.4
@@ -688,14 +688,14 @@ externalDependencies:
 ### Step 2: Package and Transfer Helm Chart
 
 ```bash
-# In connected environment
-helm repo add neio https://charts.neio.ai
-helm pull neio/leasingops --version 1.0.0
+# In connected environment — clone repo and package chart
+git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
+helm package Agentic-Lease-Management-and-Reconciliation-with-Codvo/leasingops/helm
 
-# Transfer leasingops-1.0.0.tgz to air-gapped environment
+# Transfer leasingops-*.tgz to air-gapped environment
 
 # In air-gapped environment, install from local chart
-helm install leasingops ./leasingops-1.0.0.tgz \
+helm install leasingops ./leasingops-*.tgz \
     --namespace leasingops \
     -f values-airgapped.yaml
 ```
