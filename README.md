@@ -99,9 +99,9 @@ export NEIO_LICENSE_TOKEN="your-license-token"
 
 ### 2. Deploy LLM Inference (Architecture Charts)
 
-NeIO LeasingOps uses [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) to deploy **vLLM + LlamaStack** in-cluster. This is the recommended approach for all OpenShift deployments — no external LLM API key required, no Ollama.
+NeIO LeasingOps uses [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) to deploy **vLLM + LlamaStack** in-cluster. This will work with both current and earlier versions of OpenShift AI. These charts are deployed using only minimal options which does not result in a deployment suitable for production. Production deployment would require a more complete configuration of the charts in order to achieve persistence, scalability and other production requirements.
 
-> See [mhdawson/arch-chart-example](https://github.com/mhdawson/arch-chart-example) for a minimal working example of these charts in action.
+For newer versions of Red Hat OpenShift AI (RHOAI) we recommend using the InferenceService and LLamaStackDistribution (Tech preview in RHOAI 3.3) Custom Resources, see [Chapter 3. Deploying a Llama Stack server](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.3/html/working_with_llama_stack/deploying-llama-stack-server_rag)
 
 #### Step 1 — Install RHOAI operator (required for vLLM + LlamaStack arch charts)
 
@@ -460,7 +460,7 @@ llm:
 
 ## OpenShift AI Inference
 
-NeIO LeasingOps uses **LlamaStack** as its inference layer, backed by **vLLM** deployed via the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts). This is the recommended pattern for all OpenShift deployments — including development, evaluation, and production.
+NeIO LeasingOps uses **LlamaStack** as its inference layer, backed by **vLLM** deployed via the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts).
 
 ### How It Works
 
@@ -492,28 +492,6 @@ This is the LlamaStack-specific path that proxies to the underlying vLLM backend
 | `llm.model` | Model identifier as registered in RHOAI | `ibm-granite/granite-3.3-8b-instruct` |
 | `llm.maxTokens` | Max tokens per completion | `4096` |
 | `llm.temperature` | Sampling temperature | `0.7` |
-
-### Deploying with Architecture Charts
-
-The recommended way to deploy LLM inference is via the [Red Hat AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts). See [mhdawson/arch-chart-example](https://github.com/mhdawson/arch-chart-example) for a minimal working example.
-
-The `llm-service` chart deploys vLLM and supports multiple device types:
-
-| Device | Image | Use case |
-|--------|-------|----------|
-| `gpu` | `vllm/vllm-openai:v0.11.1` | Production (NVIDIA GPU) |
-| `gpu-amd` | `quay.io/modh/vllm:rhoai-2.25-rocm` | AMD ROCm GPU |
-| `hpu` | `quay.io/modh/vllm:rhoai-2.25-gaudi` | Intel Gaudi |
-| `cpu` | `quay.io/ecosystem-appeng/vllm:cpu-v0.9.2` | Evaluation / CRC (no GPU) |
-
-Once deployed, LlamaStack runs at `http://llamastack:8321` in the same namespace. The worker and API receive:
-
-```
-LLAMASTACK_URL=http://llamastack:8321
-LLAMASTACK_MODEL=ibm-granite/granite-3.3-2b-instruct
-```
-
-> **Storage:** The API and worker share a `ReadWriteOnce` PVC (`leasingops-uploads`, 5Gi) for uploaded documents. OpenShift restricted SCC requires `fsGroup: 1000` in the pod security context — the chart sets this automatically.
 
 ### RSDP Automatic Injection
 
