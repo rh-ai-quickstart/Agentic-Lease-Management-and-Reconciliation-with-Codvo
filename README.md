@@ -70,9 +70,9 @@ graph TB
 | NeIO License Token | - | Contact bala@codvo.ai or indranil@codvo.ai |
 | Container Registry Access | - | Images hosted on `rhleasingopsacr.azurecr.io` — request pull credentials from bala@codvo.ai or indranil@codvo.ai |
 | OpenShift CLI (oc) | 4.14+ | Cluster access |
-| Red Hat OpenShift AI | 2.x | Optional, for on-cluster vLLM/LlamaStack inference |
-| **LLM Inference** | - | vLLM + LlamaStack via [RH AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) (recommended) or RSDP-injected endpoint — see [Configure LLM Provider](#2-configure-llm-provider) |
-| **Hugging Face Token** | - | Required for downloading `meta-llama/Llama-3.2-3B-Instruct` via the arch charts |
+| Red Hat OpenShift AI | 2.x | Required for on-cluster vLLM/LlamaStack inference via arch charts |
+| **LLM Inference** | - | vLLM + LlamaStack via [RH AI Architecture Charts](https://github.com/rh-ai-quickstart/ai-architecture-charts) — see [Configure LLM Provider](#2-configure-llm-provider) |
+| **Model** | - | `ibm-granite/granite-3.3-2b-instruct` — Apache 2.0, no Hugging Face token required |
 
 ### Cluster Resources
 
@@ -103,43 +103,107 @@ NeIO LeasingOps uses [Red Hat AI Architecture Charts](https://github.com/rh-ai-q
 
 > See [mhdawson/arch-chart-example](https://github.com/mhdawson/arch-chart-example) for a minimal working example of these charts in action.
 
-#### Step 1 — Add the architecture charts repo and install LLM inference
+#### Step 1 — Install RHOAI operator (required for vLLM + LlamaStack arch charts)
+
+The architecture charts use KServe, which is installed as part of Red Hat OpenShift AI (RHOAI).
+
+```bash
+# Create RHOAI operator namespace and install via OLM
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redhat-ods-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  channel: stable
+  name: rhods-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+
+# Wait for operator to be ready (~2 min)
+oc wait csv -n redhat-ods-operator -l operators.coreos.com/rhods-operator.redhat-ods-operator \
+  --for=jsonpath='{.status.phase}'=Succeeded --timeout=300s
+
+# Create DataScienceCluster with KServe enabled
+cat <<EOF | oc apply -f -
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    kserve:
+      managementState: Managed
+      serving:
+        managementState: Managed
+        name: knative-serving
+    modelmeshserving:
+      managementState: Removed
+    dashboard:
+      managementState: Managed
+    workbenches:
+      managementState: Removed
+    datasciencepipelines:
+      managementState: Removed
+    modelcontroller:
+      managementState: Managed
+EOF
+
+# Wait for DataScienceCluster to be ready (~5-10 min)
+oc wait datasciencecluster default-dsc \
+  --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True --timeout=600s
+```
+
+#### Step 2 — Deploy LLM inference (Granite 3.3 2B — no HF token required)
+
+NeIO LeasingOps uses **IBM Granite 3.3 2B Instruct** as its default model. Granite is fully open-source (Apache 2.0), developed by IBM Research and Red Hat, and requires no Hugging Face token or gated model approval.
 
 ```bash
 helm repo add rh-ai-quickstart https://rh-ai-quickstart.github.io/ai-architecture-charts
 helm repo update
 
-# Create a secret with your Hugging Face token (needed to pull Llama 3.2 weights)
-oc create secret generic huggingface-secret \
-  --from-literal=HF_TOKEN=$HF_TOKEN \
-  -n leasingops
-
-# Deploy vLLM (llm-service) + LlamaStack using the arch charts
-# GPU cluster:
-helm install llm-inference rh-ai-quickstart/llm-service \
-  --namespace leasingops \
-  --set device=gpu \
-  --set models.llama-3-2-3b-instruct.enabled=true
-
-# CPU-only cluster (evaluation / CRC):
+# Deploy vLLM serving Granite 3.3 2B (CPU cluster)
 helm install llm-inference rh-ai-quickstart/llm-service \
   --namespace leasingops \
   --set device=cpu \
-  --set models.llama-3-2-3b-instruct.enabled=true
+  --set "models.granite-3-3-2b-instruct.enabled=true" \
+  --set "models.granite-3-3-2b-instruct.id=ibm-granite/granite-3.3-2b-instruct" \
+  --set "models.granite-3-3-2b-instruct.device=cpu" \
+  --set "models.granite-3-3-2b-instruct.resources.requests.cpu=4" \
+  --set "models.granite-3-3-2b-instruct.resources.requests.memory=8Gi" \
+  --set "models.granite-3-3-2b-instruct.resources.limits.cpu=8" \
+  --set "models.granite-3-3-2b-instruct.resources.limits.memory=16Gi"
 
 # Deploy LlamaStack (API layer over vLLM)
 helm install llamastack rh-ai-quickstart/llama-stack \
   --namespace leasingops \
-  --set models.llama-3-2-3b-instruct.enabled=true
+  --set "models.remote-llm.enabled=true" \
+  --set "models.remote-llm.url=http://granite-3-3-2b-instruct-vllm/v1"
 ```
 
-Once the LlamaStack pod is ready, note the service endpoint (used in Step 4):
+Wait for both to be ready:
 ```bash
+oc rollout status deploy/llamastack -n leasingops --timeout=600s
 oc get svc llamastack -n leasingops
 # → llamastack:8321 (cluster-internal)
 ```
 
-#### Step 2 — Install NeIO LeasingOps pointing at LlamaStack
+#### Step 3 — Install NeIO LeasingOps pointing at LlamaStack
 
 ```bash
 # Clone this repository if you haven't already
@@ -150,13 +214,15 @@ helm install leasingops ./leasingops/helm \
   --namespace leasingops \
   --set global.licenseToken=$NEIO_LICENSE_TOKEN \
   --set global.domain=leasingops.apps.your-cluster.com \
-  --set llm.url="http://llamastack:8321" \
-  --set llm.model="meta-llama/Llama-3.2-3B-Instruct" \
+  --set llm.url="http://llamastack:8321/v1/openai/v1" \
+  --set llm.model="ibm-granite/granite-3.3-2b-instruct" \
   --set llm.apiToken="" \
   -f leasingops/helm/values-openshift.yaml
 ```
 
-> **Larger models:** With GPU nodes, switch to `meta-llama/Llama-3-8b-instruct` or `meta-llama/Llama-3-70b-chat-hf` for better quality — just change `--set llm.model=` and redeploy the `llm-service` chart with the appropriate model enabled.
+> **GPU clusters:** Replace `device=cpu` with `device=gpu` for significantly faster inference. Model ID stays the same.
+
+> **Larger Granite models:** For higher quality, use `ibm-granite/granite-3.3-8b-instruct` — same open license, requires ~20Gi RAM.
 
 > **RSDP deployments:** The Red Hat Solution Deployment Platform automatically injects `llm.url`, `llm.apiToken`, and `llm.model` — no manual configuration needed. See [OpenShift AI Inference](#openshift-ai-inference) for full details.
 
@@ -216,7 +282,7 @@ echo "Application URL: https://$(oc get route leasingops-app -n leasingops -o js
 
 ### 6. Test with Sample Contracts
 
-The `examples/sample-contracts/` directory contains **45 real aircraft leasing documents** across 10 document types — validated against the full 10-agent pipeline on CRC (OpenShift 4.14+, CPU-only, `llama3.2:3b`).
+The `examples/sample-contracts/` directory contains **45 real aircraft leasing documents** across 10 document types — validated against the full 10-agent pipeline on CRC (OpenShift 4.14+, CPU-only, `ibm-granite/granite-3.3-2b-instruct`).
 
 **Document types included:**
 
@@ -259,7 +325,7 @@ curl -s "$API_URL/api/v1/documents" \
 All 45 documents should pass through the 10-agent pipeline:
 `contract_intake → term_extraction → obligation_mapping → utilization_reconcile → reserve_calculation → variance_detection → return_readiness → evidence_pack → decision_support → escalation`
 
-Expected completion time: ~8–12 hours (CPU / `llama3.2:3b`), ~30–60 minutes (GPU / `Llama-3-8b`).
+Expected completion time: ~8–12 hours (CPU / `ibm-granite/granite-3.3-2b-instruct`), ~30–60 minutes (GPU / `Llama-3-8b`).
 
 ## Components
 
@@ -376,7 +442,7 @@ qdrant:
 # Deploy llm-service + llama-stack arch charts first, then point here
 llm:
   url: "http://llamastack:8321"   # LlamaStack service (arch chart)
-  model: "meta-llama/Llama-3.2-3B-Instruct"  # or Llama-3-8b-instruct for GPU
+  model: "ibm-granite/granite-3.3-2b-instruct"  # or Llama-3-8b-instruct for GPU
   apiToken: ""                    # empty for cluster-internal endpoints
   maxTokens: 4096
   temperature: 0.7
@@ -388,7 +454,7 @@ llm:
 |----------|-------------|----------|
 | `NEIO_LICENSE_TOKEN` | NeIO license token | Yes |
 | `LLAMASTACK_URL` | LlamaStack service URL (default: `http://llamastack:8321`) | Auto-configured |
-| `LLAMASTACK_MODEL` | Model served by LlamaStack/Ollama (default: `llama3.2:3b`) | Auto-configured |
+| `LLAMASTACK_MODEL` | Model served by LlamaStack/Ollama (default: `ibm-granite/granite-3.3-2b-instruct`) | Auto-configured |
 | `DATABASE_URL` | PostgreSQL connection string | Auto-configured |
 | `REDIS_URL` | Redis connection string | Auto-configured |
 
@@ -423,7 +489,7 @@ This is the LlamaStack-specific path that proxies to the underlying vLLM backend
 |------------|-------------|---------|
 | `llm.url` | Base URL of the LlamaStack or vLLM endpoint | `https://llama-70b.rhoai.svc.cluster.local` |
 | `llm.apiToken` | Bearer token (empty for cluster-internal endpoints) | `""` |
-| `llm.model` | Model identifier as registered in RHOAI | `meta-llama/Llama-3-70b-chat-hf` |
+| `llm.model` | Model identifier as registered in RHOAI | `ibm-granite/granite-3.3-8b-instruct` |
 | `llm.maxTokens` | Max tokens per completion | `4096` |
 | `llm.temperature` | Sampling temperature | `0.7` |
 
@@ -444,7 +510,7 @@ Once deployed, LlamaStack runs at `http://llamastack:8321` in the same namespace
 
 ```
 LLAMASTACK_URL=http://llamastack:8321
-LLAMASTACK_MODEL=meta-llama/Llama-3.2-3B-Instruct
+LLAMASTACK_MODEL=ibm-granite/granite-3.3-2b-instruct
 ```
 
 > **Storage:** The API and worker share a `ReadWriteOnce` PVC (`leasingops-uploads`, 5Gi) for uploaded documents. OpenShift restricted SCC requires `fsGroup: 1000` in the pod security context — the chart sets this automatically.
@@ -465,10 +531,8 @@ llm:
 
 | Model | Recommended For | GPU Memory |
 |-------|-----------------|------------|
-| `meta-llama/Llama-3.2-3B-Instruct` | Evaluation / CRC (arch chart, `device: cpu`) | None (CPU) |
-| `meta-llama/Llama-3-8b-instruct` | Balanced quality/cost (arch chart, `device: gpu`) | 1× A100 40GB |
-| `meta-llama/Llama-3-70b-chat-hf` | Production — highest quality | 2× A100 80GB |
-| `mistralai/Mistral-7B-Instruct-v0.3` | Resource-constrained GPU clusters | 1× A100 40GB |
+| `ibm-granite/granite-3.3-2b-instruct` | Evaluation / CPU-only clusters (`device: cpu`) | None |
+| `ibm-granite/granite-3.3-8b-instruct` | Production quality (`device: gpu`) | 1× A100 40GB |
 
 For complete RHOAI architecture diagrams, integration details, and GPU operator configuration, see [docs/REDHAT_AI_INTEGRATION.md](docs/REDHAT_AI_INTEGRATION.md).
 
