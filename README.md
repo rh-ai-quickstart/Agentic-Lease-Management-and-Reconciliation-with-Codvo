@@ -25,8 +25,6 @@ You need:
 
 You do not need a Hugging Face token. The default model is `ibm-granite/granite-3.3-2b-instruct`, which is Apache 2.0 and not gated.
 
-You do not need a NeIO license token. Previous versions of this README referenced one; it is no longer required.
-
 ## 1. Log in to OpenShift and the registry
 
 ```
@@ -53,41 +51,46 @@ helm repo add rh-ai-quickstart https://rh-ai-quickstart.github.io/ai-architectur
 helm repo update
 ```
 
-Install vLLM with Granite 3.3 2B on CPU:
+Install vLLM with Granite 3.3 2B on CPU. Pin the chart version so future installs are reproducible:
 
 ```
 helm install llm-inference rh-ai-quickstart/llm-service \
+  --version 0.5.9 \
   --namespace leasingops \
   --set device=cpu \
   --set "models.granite-3-3-2b-instruct.enabled=true" \
   --set "models.granite-3-3-2b-instruct.id=ibm-granite/granite-3.3-2b-instruct"
 ```
 
-Wait for the vLLM pod to reach `Running`. First pull downloads the model and takes around five minutes.
+The vLLM pod is created by KServe and named `granite-3-3-2b-instruct-predictor-*`. First pull downloads the model and takes about five minutes. Wait for it to reach `Running`:
 
 ```
-oc get pods -n leasingops | grep vllm
+oc get pods -n leasingops | grep predictor
 ```
 
-Install LlamaStack pointed at vLLM:
+Install LlamaStack pointed at vLLM. The `pgvector.enabled=false` flag is required; without it the install fails on a missing PVC for an embedded pgvector instance you don't need:
 
 ```
 helm install llamastack rh-ai-quickstart/llama-stack \
+  --version 0.7.3 \
   --namespace leasingops \
-  --set vllm.url=http://granite-3-3-2b-instruct-vllm:8080
+  --set vllm.url=http://granite-3-3-2b-instruct-vllm:8080 \
+  --set pgvector.enabled=false
 ```
 
-Confirm LlamaStack is ready and the model is registered. LlamaStack adds a `remote-llm/` prefix when it registers the model:
+Wait for the deployment to roll out, then verify the model is registered. LlamaStack does not expose an OpenShift Route by default, so port-forward to its service:
 
 ```
 oc rollout status deploy/llamastack -n leasingops --timeout=300s
 
-curl http://$(oc get route llamastack -n leasingops -o jsonpath='{.spec.host}')/v1/models | python3 -m json.tool
+oc port-forward -n leasingops svc/llamastack 8321:8321 &
+curl -s http://localhost:8321/v1/models | python3 -m json.tool
+kill %1
 ```
 
-You should see `remote-llm/ibm-granite/granite-3.3-2b-instruct` in the output. The chart uses that exact prefixed name in step 5.
+You should see `remote-llm/ibm-granite/granite-3.3-2b-instruct` in the output. LlamaStack adds the `remote-llm/` prefix when it registers the model, and the chart uses that exact prefixed name in step 6.
 
-The correct inference path is `/v1/chat/completions`. Some older docs mention `/v1/openai/v1/chat/completions`; that path returns 404 and must not be used.
+The inference path that the worker calls is `/v1/chat/completions`.
 
 ## 4. Create the ACR pull secret
 
@@ -126,10 +129,18 @@ If your Postgres is in-cluster via the Bitnami subchart, the host is set automat
 
 ## 6. Install the chart
 
+The chart bundles PostgreSQL, Redis, and MinIO as subchart dependencies (see `Chart.yaml`). Pull them into `charts/` once before the first install:
+
 ```
 git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
 cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 
+helm dependency build ./leasingops/helm
+```
+
+Then install the application chart:
+
+```
 helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops \
   --set global.imagePullSecrets[0]=acr-pull-secret \
@@ -147,7 +158,7 @@ helm install neio-leasingops ./leasingops/helm \
 
 The image tags above are the ones validated in the Red Hat partner lab. Newer tags may exist; ask before changing them.
 
-`llamastack.maxTokens` is capped at 2048 because Granite 3.3 2B has an 8192 token context and the agent prompts already consume 4–5 k tokens. Going higher causes context overflow errors.
+`llamastack.maxTokens` is capped at 2048 because Granite 3.3 2B has an 8192-token context and the agent prompts already consume around 4000 to 5000 tokens. Going higher causes context overflow errors.
 
 ## 7. Verify everything is up
 
@@ -238,6 +249,7 @@ To switch the same deployment from CPU to GPU inference, upgrade the LLM chart:
 
 ```
 helm upgrade llm-inference rh-ai-quickstart/llm-service \
+  --version 0.5.9 \
   --namespace leasingops \
   --set device=gpu \
   --set "models.granite-3-3-2b-instruct.enabled=true" \
@@ -249,6 +261,7 @@ For better output quality, switch to the 8B model. Same license, needs a GPU wit
 
 ```
 helm upgrade llm-inference rh-ai-quickstart/llm-service \
+  --version 0.5.9 \
   --namespace leasingops \
   --set device=gpu \
   --set "models.granite-3-3-8b-instruct.enabled=true" \
@@ -260,6 +273,12 @@ oc set env deployment/neio-leasingops-worker \
 ```
 
 ## Troubleshooting
+
+`helm install` fails with `missing in charts/ directory: postgresql, redis, minio`: you skipped `helm dependency build`. Run `helm dependency build ./leasingops/helm` once, then retry the install.
+
+`helm install llamastack` fails on a missing PVC for pgvector: you forgot `--set pgvector.enabled=false` on the LlamaStack install in step 3. The application chart does not use the pgvector that LlamaStack tries to bring up by default.
+
+PodSecurity admission warnings on `api` or `worker` (`allowPrivilegeEscalation != false`, `runAsNonRoot != true`, `seccompProfile not set`) and pods never come up: the security context isn't being applied. Confirm `values-openshift.yaml` uses `securityContext:` (not `containerSecurityContext:`) under `app`, `api`, and `worker`. The deployment template reads `.Values.{api,worker,app}.securityContext`, so the wrong field name is silently dropped.
 
 Worker pod in `CrashLoopBackOff`: the `neio-leasingops-secrets` secret is missing or missing a required key. Re-run step 5 and restart the worker (`oc rollout restart deploy/neio-leasingops-worker -n leasingops`).
 
