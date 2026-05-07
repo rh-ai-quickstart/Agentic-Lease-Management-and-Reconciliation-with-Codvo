@@ -37,6 +37,14 @@ jobs:
           helm repo add bitnami https://charts.bitnami.com/bitnami
           helm repo update
 
+      - name: Pull subchart dependencies
+        run: |
+          # helm lint --with-subcharts needs charts/ populated;
+          # do this before any of the lint steps below.
+          helm dependency update ./leasingops/helm
+          helm dependency update ./openshift-ai/helm || true
+          helm dependency update ./dependencies/pgvector/helm || true
+
       - name: Lint leasingops chart
         run: |
           echo "Linting leasingops chart..."
@@ -88,13 +96,15 @@ jobs:
 
       - name: Lint YAML files
         run: |
+          # Only lint plain YAML (Chart.yaml, values*.yaml).
+          # Files under templates/ are Helm Go templates and yamllint
+          # cannot parse {{- if .. }}/{{- end }} constructs; the
+          # template-validation job covers those by rendering the chart
+          # with `helm template`.
           yamllint -c .yamllint.yaml \
             leasingops/helm/*.yaml \
-            leasingops/helm/templates/*.yaml \
             openshift-ai/helm/*.yaml \
-            openshift-ai/helm/templates/*.yaml \
-            dependencies/pgvector/helm/*.yaml \
-            dependencies/pgvector/helm/templates/*.yaml
+            dependencies/pgvector/helm/*.yaml
 
   template-validation:
     name: Validate Chart Templates

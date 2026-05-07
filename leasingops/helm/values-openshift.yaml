@@ -285,14 +285,12 @@ security:
   podSecurityStandards:
     enforce: restricted
 
-  # Service account for workload identity
+  # Service account for workload identity.
+  # If you need AWS IRSA on ROSA, add eks.amazonaws.com/role-arn under annotations.
+  # If you need Azure Workload Identity on ARO, add azure.workload.identity/client-id.
   serviceAccount:
     create: true
-    annotations:
-      # For AWS IRSA on ROSA
-      # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/leasingops-role
-      # For Azure Workload Identity on ARO
-      # azure.workload.identity/client-id: ""
+    annotations: {}
 
   # RBAC is managed differently in OpenShift
   rbac:
