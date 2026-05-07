@@ -45,8 +45,11 @@ app:
   ingress:
     enabled: false
 
-  # Container security context for restricted SCC
-  containerSecurityContext:
+  # Container security context for restricted-v2 SCC (app).
+  # Field name must be `securityContext`. The deployment template reads
+  # .Values.app.securityContext; renaming this to containerSecurityContext
+  # will silently drop the settings and PodSecurity admission will reject the pod.
+  securityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
     capabilities:
@@ -74,8 +77,8 @@ api:
       # Enable WebSocket support for streaming responses
       haproxy.router.openshift.io/hsts_header: max-age=31536000;includeSubDomains
 
-  # Container security context for restricted SCC
-  containerSecurityContext:
+  # Container security context for restricted-v2 SCC (api).
+  securityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
     capabilities:
@@ -101,8 +104,8 @@ api:
 # BACKGROUND WORKER - OpenShift Configuration
 # =============================================================================
 worker:
-  # Container security context for restricted SCC
-  containerSecurityContext:
+  # Container security context for restricted-v2 SCC (worker).
+  securityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
     capabilities:
