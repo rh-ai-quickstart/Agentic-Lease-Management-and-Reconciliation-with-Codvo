@@ -25,6 +25,11 @@ global:
 # APPLICATION FRONTEND - OpenShift Configuration
 # =============================================================================
 app:
+  # The uploads PVC is ReadWriteOnce. A second replica scheduled to a
+  # different node sits in ContainerCreating forever. Keep replicas: 1
+  # unless your cluster has an RWX storage class.
+  replicas: 1
+
   # OpenShift Route configuration
   route:
     enabled: true
@@ -45,23 +50,37 @@ app:
   ingress:
     enabled: false
 
-  # Container security context for restricted-v2 SCC (app).
-  # Field name must be `securityContext`. The deployment template reads
-  # .Values.app.securityContext; renaming this to containerSecurityContext
-  # will silently drop the settings and PodSecurity admission will reject the pod.
+  # Next.js doesn't serve /api/health. Root path passes.
+  livenessProbe:
+    path: /
+  readinessProbe:
+    path: /
+
+  # Pod-level security context. fsGroup 1000 lets appuser (image's USER)
+  # write to the shared uploads PVC. runAsUser/runAsGroup are left to
+  # OpenShift's SCC controller to assign from the namespace range.
+  podSecurityContext:
+    fsGroup: 1000
+
+  # Container-level security context.
+  # Field name must be `securityContext`; the deployment template reads
+  # .Values.app.securityContext. We deliberately leave it sparse so the
+  # OpenShift SCC controller fills in the rest. Setting seccompProfile
+  # here triggers an admission webhook that converts it to a forbidden
+  # deprecated annotation on restricted-v2 SCC.
   securityContext:
     allowPrivilegeEscalation: false
-    runAsNonRoot: true
     capabilities:
       drop:
         - ALL
-    seccompProfile:
-      type: RuntimeDefault
 
 # =============================================================================
 # API SERVER - OpenShift Configuration
 # =============================================================================
 api:
+  # See note on app.replicas. The uploads PVC is RWO.
+  replicas: 1
+
   # OpenShift Route configuration
   route:
     enabled: true
@@ -77,15 +96,21 @@ api:
       # Enable WebSocket support for streaming responses
       haproxy.router.openshift.io/hsts_header: max-age=31536000;includeSubDomains
 
-  # Container security context for restricted-v2 SCC (api).
+  # Probes match the actual API health endpoint (FastAPI /health).
+  livenessProbe:
+    path: /health
+  readinessProbe:
+    path: /health
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  # See note on app.securityContext above.
   securityContext:
     allowPrivilegeEscalation: false
-    runAsNonRoot: true
     capabilities:
       drop:
         - ALL
-    seccompProfile:
-      type: RuntimeDefault
 
   # Environment variables for OpenShift
   env:
@@ -104,15 +129,15 @@ api:
 # BACKGROUND WORKER - OpenShift Configuration
 # =============================================================================
 worker:
-  # Container security context for restricted-v2 SCC (worker).
+  podSecurityContext:
+    fsGroup: 1000
+
+  # See note on app.securityContext above.
   securityContext:
     allowPrivilegeEscalation: false
-    runAsNonRoot: true
     capabilities:
       drop:
         - ALL
-    seccompProfile:
-      type: RuntimeDefault
 
 # =============================================================================
 # AI CONFIGURATION - OpenShift AI Integration

@@ -1,0 +1,117 @@
+{{- /*
+Post-install Job that registers the Granite model with LlamaStack.
+
+LlamaStack 0.7.x does not auto-discover models from its configured
+vllm.url. After the LlamaStack pod is up, something has to POST to
+/v1/models or chat completions return "Model not found". Previously
+this README told operators to run `oc exec ... python3 -c "..."` by
+hand; this Job does the same thing in-cluster on every install or
+upgrade, so a GitOps apply Just Works.
+
+The Job is idempotent: re-registering an existing model returns 200
+from LlamaStack with no side effect.
+
+Disable by setting:
+  llamastack:
+    registerModel: false
+*/}}
+{{- $register := true }}
+{{- if and .Values.llamastack (hasKey .Values.llamastack "registerModel") }}
+{{- $register = .Values.llamastack.registerModel }}
+{{- end }}
+{{- if $register }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-register-model
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llamastack-register
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "neio-leasingops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: llamastack-register
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+      containers:
+        - name: register
+          image: registry.access.redhat.com/ubi9/python-311:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LLAMASTACK_URL
+              value: {{ .Values.llamastack.url | default "http://llamastack:8321" | quote }}
+            - name: LLAMASTACK_MODEL
+              value: {{ .Values.llamastack.model | default "remote-llm/ibm-granite/granite-3.3-2b-instruct" | quote }}
+          command: ["python3", "-c"]
+          args:
+            - |
+              import json, os, sys, time, urllib.request, urllib.error
+
+              base = os.environ["LLAMASTACK_URL"].rstrip("/")
+              # The chart's LLAMASTACK_MODEL is the prefixed id (remote-llm/<model>).
+              # The registration payload uses the bare model id; LlamaStack adds
+              # the provider prefix on store.
+              full = os.environ["LLAMASTACK_MODEL"]
+              bare = full.split("/", 1)[1] if "/" in full else full
+              provider = full.split("/", 1)[0] if "/" in full else "remote-llm"
+
+              # Wait for LlamaStack /v1/health before posting.
+              for attempt in range(60):
+                  try:
+                      urllib.request.urlopen(base + "/v1/health", timeout=5).read()
+                      print(f"llamastack healthy after {attempt} retries")
+                      break
+                  except Exception as e:
+                      print(f"waiting for llamastack ({attempt}): {e}")
+                      time.sleep(5)
+              else:
+                  sys.exit("llamastack /v1/health never reachable; aborting")
+
+              body = json.dumps({
+                  "model_id": bare,
+                  "provider_id": provider,
+                  "provider_model_id": bare,
+                  "model_type": "llm",
+              }).encode()
+              req = urllib.request.Request(
+                  base + "/v1/models",
+                  data=body, method="POST",
+                  headers={"Content-Type": "application/json"},
+              )
+              try:
+                  resp = urllib.request.urlopen(req, timeout=30)
+                  print(f"register OK: {resp.status} {resp.read().decode()[:300]}")
+              except urllib.error.HTTPError as e:
+                  payload = e.read().decode()
+                  # LlamaStack returns 200 on re-register so 4xx here means
+                  # the model id or provider id is genuinely wrong. Surface
+                  # the response so the operator can fix values.
+                  print(f"register HTTP {e.code}: {payload}", file=sys.stderr)
+                  sys.exit(1)
+
+              # Verify it's in /v1/models.
+              listed = json.loads(urllib.request.urlopen(base + "/v1/models").read())
+              ids = [m["id"] for m in listed.get("data", [])]
+              if full in ids:
+                  print(f"verified: {full} present in /v1/models")
+              else:
+                  print(f"WARNING: {full} not in /v1/models; saw: {ids}", file=sys.stderr)
+                  sys.exit(2)
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+{{- end }}

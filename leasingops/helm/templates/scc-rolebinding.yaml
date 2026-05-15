@@ -1,0 +1,40 @@
+{{- /*
+Optional RoleBinding that grants the chart's ServiceAccount the `anyuid` SCC.
+
+The application images ship with USER appuser (uid 1000). On clusters with
+the OpenShift restricted-v2 SCC as the namespace default, that fixed UID is
+rejected. Granting anyuid via this RoleBinding lets the SA run pods as uid
+1000 without a cluster-admin running `oc adm policy add-scc-to-user` by
+hand.
+
+Disable by setting:
+  openshift:
+    grantAnyuid: false
+
+On non-OpenShift clusters this template renders nothing because the
+SecurityContextConstraints CRD doesn't exist there.
+*/}}
+{{- $grantAnyuid := true }}
+{{- if and .Values.openshift (hasKey .Values.openshift "grantAnyuid") }}
+{{- $grantAnyuid = .Values.openshift.grantAnyuid }}
+{{- end }}
+{{- if $grantAnyuid }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-anyuid
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "neio-leasingops.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -91,24 +91,9 @@ Wait for the deployment to roll out:
 oc rollout status deploy/llamastack -n leasingops --timeout=300s
 ```
 
-LlamaStack does NOT auto-register models from the configured vLLM URL. You have to POST the model once. This is the most commonly missed step.
+LlamaStack does NOT auto-register models from the configured vLLM URL. The application chart in step 7 takes care of this on every install or upgrade via a post-install Helm Job (`<release>-register-model`), so you can skip ahead to step 4 and come back here for the smoke test below once the chart is installed.
 
-```
-oc exec -n leasingops deploy/llamastack -- python3 -c "
-import urllib.request, json
-body = json.dumps({
-  'model_id': 'ibm-granite/granite-3.3-2b-instruct',
-  'provider_id': 'remote-llm',
-  'provider_model_id': 'ibm-granite/granite-3.3-2b-instruct',
-  'model_type': 'llm'
-}).encode()
-req = urllib.request.Request('http://localhost:8321/v1/models', data=body, method='POST',
-  headers={'Content-Type': 'application/json'})
-print(urllib.request.urlopen(req).read().decode())
-"
-```
-
-Verify the model is registered. LlamaStack does not expose an OpenShift Route by default, so port-forward to its Service:
+If you want to confirm registration after `helm install` completes, port-forward to the LlamaStack Service and list models. LlamaStack doesn't expose an OpenShift Route by default:
 
 ```
 oc port-forward -n leasingops svc/llamastack 8321:8321 &
@@ -275,66 +260,23 @@ cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 helm dependency build ./leasingops/helm
 ```
 
-The chart references a service account named `neio-leasingops` but does not create one. Create it now and grant it the `anyuid` SCC so the images' built-in `appuser` (uid 1000) is accepted on restricted-v2 clusters:
+The chart creates its own ServiceAccount (`neio-leasingops`) and a RoleBinding that grants it the `anyuid` SCC, so the application images' built-in `appuser` (uid 1000) is accepted on restricted-v2 clusters. After install, a post-install Hook Job (`*-register-model`) runs inside the cluster and POSTs the Granite model to LlamaStack's `/v1/models`. None of this needs manual `oc create` / `oc adm policy` / `curl POST` commands; the chart and its hooks handle it on every install or upgrade.
 
-```
-oc create sa neio-leasingops -n leasingops
-oc adm policy add-scc-to-user anyuid -z neio-leasingops -n leasingops
-```
-
-The chart's default Postgres + Redis + MinIO subcharts don't play well with restricted-v2 SCC. The clean path is to skip them (you deployed your own in step 6) and to apply a small set of overrides that nullify the chart's hard-coded `runAsUser`, `seccompProfile`, and bad probe paths. Save this as `leasingops-overrides.yaml` next to the chart:
+Two cluster-specific values you still need to set are the Route hostnames. Save the following as `leasingops-overrides.yaml` next to the chart, replacing the placeholder cluster apps domain with your own:
 
 ```yaml
 api:
-  replicas: 1
-  podSecurityContext:
-    fsGroup: 1000
-    runAsUser: null
-    runAsGroup: null
-  securityContext:
-    allowPrivilegeEscalation: null
-    runAsNonRoot: null
-    capabilities: null
-    seccompProfile: null
-  livenessProbe:
-    path: /
-  readinessProbe:
-    path: /
-
+  route:
+    host: api-leasingops.apps.<your-cluster-apps-domain>
 app:
-  replicas: 1
-  podSecurityContext:
-    fsGroup: 1000
-    runAsUser: null
-    runAsGroup: null
-  securityContext:
-    allowPrivilegeEscalation: null
-    runAsNonRoot: null
-    capabilities: null
-    seccompProfile: null
-  livenessProbe:
-    path: /
-  readinessProbe:
-    path: /
-
-worker:
-  podSecurityContext:
-    fsGroup: 1000
-    runAsUser: null
-    runAsGroup: null
-  securityContext:
-    allowPrivilegeEscalation: null
-    runAsNonRoot: null
-    capabilities: null
-    seccompProfile: null
-
+  route:
+    host: leasingops.apps.<your-cluster-apps-domain>
 cache:
+  # Match the Service name created in step 6.
   host: leasingops-redis
 ```
 
-Why each block is there is in the `Real-cluster gotchas` section below. Read it before changing the file.
-
-Install:
+Then install:
 
 ```
 helm install neio-leasingops ./leasingops/helm \
@@ -357,6 +299,14 @@ helm install neio-leasingops ./leasingops/helm \
 ```
 
 Quote `'imagePullSecrets[0].name=acr-pull-secret'` so zsh doesn't glob the `[0]`. The pull secret value must be set at the top-level `imagePullSecrets`, not `global.imagePullSecrets`; the chart only reads the top-level path.
+
+The post-install model-registration Job is named `<release>-register-model` and is auto-deleted by Helm when it succeeds. If it fails, check its logs:
+
+```
+oc logs -n leasingops job/neio-leasingops-register-model
+```
+
+You can opt out of the auto-registration with `--set llamastack.registerModel=false` if you have your own bootstrap pipeline doing the same POST.
 
 The image tags above are the ones validated in the Red Hat partner lab. Newer tags may exist; ask before changing them.
 
@@ -456,10 +406,10 @@ These came out of a live deploy on a fresh OpenShift 4.21 partner lab cluster. E
 | Container `seccompProfile: RuntimeDefault` is converted by an admission webhook into a deprecated annotation that the SCC forbids | Pod creation rejected | Override file sets `securityContext.seccompProfile: null`. |
 | vLLM Service port is `80`, not `8080` | Older docs say 8080 and produce 404s | Use `http://granite-3-3-2b-instruct-vllm:80/v1`. |
 | LlamaStack `remote::vllm` provider expects `base_url` to end in `/v1` | Without it, every chat completion returns `404 Not Found` from upstream | Append `/v1` on the install URL. |
-| LlamaStack doesn't auto-register models from the configured vLLM URL | Calling chat completions returns "Model not found" | One-time POST to `/v1/models` (shown in step 3). |
+| LlamaStack doesn't auto-register models from the configured vLLM URL | Calling chat completions returns "Model not found" | Chart now ships a post-install Helm Job (`<release>-register-model`) that POSTs to `/v1/models` once LlamaStack is healthy. Auto-deletes on success. Opt out with `--set llamastack.registerModel=false`. |
 | Chart's `llama-stack` install fails on a missing pgvector PVC by default | `helm install` fails | `--set pgvector.enabled=false`. |
 | Naming the Redis Service `redis` exactly collides with Kubernetes auto-injected service env vars (`REDIS_PORT=tcp://...`) | Worker constructs a malformed `REDIS_URL` and dies | Name the Service `leasingops-redis`; set `cache.host=leasingops-redis` in the override file. |
-| Chart references SA `neio-leasingops` but does not create it | ReplicaSet stuck on `serviceaccount not found` | `oc create sa neio-leasingops -n leasingops` before install. |
+| Chart references SA `neio-leasingops` but did not create it | ReplicaSet stuck on `serviceaccount not found` | Chart now ships a `ServiceAccount` template (gated on `security.serviceAccount.create=true`, which is the default). No manual `oc create sa` needed. |
 | Pull secret must be set at top-level `imagePullSecrets`, not `global.imagePullSecrets` | API and worker pods stuck in `ImagePullBackOff` | `--set 'imagePullSecrets[0].name=acr-pull-secret'` (note the top-level key, and quote it so zsh doesn't glob `[0]`). |
 | App probe path defaults to `/api/health`, which the Next.js frontend doesn't serve | Container is SIGTERMed every minute → `CrashLoopBackOff` | Override file sets `app.livenessProbe.path: /` and `app.readinessProbe.path: /`. |
 | Uploads PVC is `ReadWriteOnce` | Second API/app replica stuck `ContainerCreating` when scheduled to a different node | Override file sets `api.replicas: 1` and `app.replicas: 1`. |
