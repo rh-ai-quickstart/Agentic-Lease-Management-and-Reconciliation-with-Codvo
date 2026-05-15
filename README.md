@@ -345,7 +345,7 @@ helm install neio-leasingops ./leasingops/helm \
   --set app.image.repository=rhleasingopsacr.azurecr.io/leasingops-app \
   --set app.image.tag=20260331.01.0002 \
   --set worker.image.repository=rhleasingopsacr.azurecr.io/leasingops-worker \
-  --set worker.image.tag=20260401.01.0003 \
+  --set worker.image.tag=20260515.01.0001 \
   --set llamastack.url=http://llamastack:8321 \
   --set llamastack.model=remote-llm/ibm-granite/granite-3.3-2b-instruct \
   --set llamastack.maxTokens=2048 \
@@ -512,7 +512,7 @@ Worker pod in `CrashLoopBackOff`: the `neio-leasingops-secrets` secret is missin
 
 `max_tokens` or context-length errors: reduce `llamastack.maxTokens`. For Granite 3.3 2B, 2048 is the ceiling.
 
-Documents stuck at `contract_intake`: you are on an older worker image. Redeploy with `worker.image.tag=20260401.01.0003` or later.
+Documents stuck mid-pipeline (e.g. `term_extraction` never starts after `contract_intake` completes): you are on a worker image older than `20260515.01.0001`. The earlier worker swallowed Langfuse trace exceptions silently and wedged its poll loop after the first agent. Redeploy with `worker.image.tag=20260515.01.0001` or later. The newer image also emits a `worker_poll_heartbeat` log every 10 poll cycles and an `llm_call_done seconds=X` line on every Granite call, so future stalls are observable in `oc logs deploy/neio-leasingops-worker`.
 
 API pod gets "permission denied" on the uploads PVC: `fsGroup: 1000` is not set on the pod. The chart sets it automatically. If you are layering your own values on top, make sure you still have `api.podSecurityContext.fsGroup: 1000` and the same on the worker.
 
