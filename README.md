@@ -531,11 +531,21 @@ for a in ['contract_intake','term_extraction','obligation_mapping','utilization_
 "
 ```
 
-## RSDP deployments
+## GitOps with ArgoCD / Red Hat Demo Platform
 
-On Red Hat Solution Deployment Platform clusters, `llm.url`, `llm.apiToken`, and `llm.model` are injected automatically. You do not need to install the `llm-service` or `llama-stack` charts yourself, and you do not need to set `llamastack.*` values on the `helm install`.
+The chart is GitOps-friendly. The post-install Helm Job registers the Granite model with LlamaStack, the ServiceAccount and `anyuid` RoleBinding are templated, and secrets are expected to arrive as `SealedSecret` resources rather than via `oc create secret`. Together that means a single ArgoCD `Application` can drive the install.
 
-The chart will read the RSDP-provided values and wire them through to the worker as `LLM_URL`, `LLM_API_TOKEN`, and `LLM_MODEL`.
+An example manifest is in `examples/argocd-application.yaml`. It points at the chart in this repo at `main`, sets the partner-lab-validated image tags, and disables the chart's Bitnami subcharts because Postgres and Redis come from separate manifests. To use it:
+
+```
+# 1. Edit the two route hosts in the parameters block to match your cluster's apps domain.
+# 2. Apply (or commit to your GitOps repo and let ArgoCD pick it up).
+oc apply -f examples/argocd-application.yaml
+```
+
+This Application is one node in a larger dependency graph. Before it converges you also need the vLLM and LlamaStack charts installed (separate Applications using `rh-ai-quickstart/llm-service` and `rh-ai-quickstart/llama-stack`), the standalone Postgres + Redis manifests, the ACR pull secret, and the `neio-leasingops-secrets` SealedSecret. Most GitOps repos express that with an "App of Apps" pattern.
+
+For RHDP specifically, RHDP injects `llm.url`, `llm.apiToken`, and `llm.model` at provisioning time. When those are set you don't need the `llamastack.*` parameters above; the chart will use the RSDP values and wire them through to the worker as `LLM_URL`, `LLM_API_TOKEN`, and `LLM_MODEL`.
 
 ## Where to get help
 

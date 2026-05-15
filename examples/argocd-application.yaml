@@ -1,0 +1,96 @@
+# Example ArgoCD Application that deploys the NeIO LeasingOps quickstart.
+#
+# This is what Red Hat Demo Platform (RHDP) or an internal GitOps repo
+# would apply to provision a partner instance. ArgoCD pulls the chart
+# from this repo at the pinned ref, renders it with the parameters
+# below, and applies the manifests into the destination namespace.
+#
+# Before applying this Application, the cluster needs:
+#   - The leasingops namespace (the Application can create it via
+#     CreateNamespace=true).
+#   - An acr-pull-secret in that namespace (or via SealedSecret
+#     committed elsewhere in your GitOps repo).
+#   - neio-leasingops-secrets (likewise; SealedSecret recommended).
+#   - vLLM and LlamaStack already deployed in the same namespace
+#     (separate ArgoCD Applications using rh-ai-quickstart/llm-service
+#     and rh-ai-quickstart/llama-stack with the values shown in the
+#     project README).
+#   - The standalone Postgres + Redis manifests applied (also a
+#     separate Application or directly in the GitOps repo).
+#
+# Most GitOps repos express the above as an "App of Apps": one parent
+# Application that creates child Applications in dependency order.
+# This file shows the leasingops app itself; treat it as one node in
+# that graph, not the whole graph.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: neio-leasingops
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo
+    targetRevision: main
+    path: leasingops/helm
+    helm:
+      releaseName: neio-leasingops
+      valueFiles:
+        - values.yaml
+        - values-openshift.yaml
+      parameters:
+        - name: imagePullSecrets[0].name
+          value: acr-pull-secret
+        - name: api.image.repository
+          value: rhleasingopsacr.azurecr.io/leasingops-api
+        - name: api.image.tag
+          value: "20260331.01.0003"
+        - name: app.image.repository
+          value: rhleasingopsacr.azurecr.io/leasingops-app
+        - name: app.image.tag
+          value: "20260331.01.0002"
+        - name: worker.image.repository
+          value: rhleasingopsacr.azurecr.io/leasingops-worker
+        - name: worker.image.tag
+          value: "20260515.01.0001"
+        - name: llamastack.url
+          value: http://llamastack:8321
+        - name: llamastack.model
+          value: remote-llm/ibm-granite/granite-3.3-2b-instruct
+        - name: llamastack.maxTokens
+          value: "2048"
+        - name: database.internal.enabled
+          value: "false"
+        - name: cache.internal.enabled
+          value: "false"
+        - name: storage.internal.enabled
+          value: "false"
+        - name: cache.host
+          value: leasingops-redis
+        # Override these two for your cluster's apps domain:
+        - name: api.route.host
+          value: api-leasingops.apps.<your-cluster-apps-domain>
+        - name: app.route.host
+          value: leasingops.apps.<your-cluster-apps-domain>
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: leasingops
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 3m
+        factor: 2
