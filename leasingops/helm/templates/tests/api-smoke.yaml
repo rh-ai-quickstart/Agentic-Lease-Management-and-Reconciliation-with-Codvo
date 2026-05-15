@@ -1,0 +1,171 @@
+{{- /*
+helm test smoke pod.
+
+Runs after `helm install` / `helm upgrade` when the user invokes
+`helm test neio-leasingops -n leasingops`. Exercises the most important
+paths:
+
+  - GET /health on the API
+  - POST /api/v1/auth/login with the demo credentials (form-encoded
+    OAuth2 password grant)
+  - POST /api/v1/leasingops/workspaces/<demo-workspace>/documents/upload
+    with the bundled sample lease, asserts HTTP 200 and a document_id
+    in the response
+  - GET /api/v1/leasingops/documents/<id>/status until current_agent
+    moves past `upload`, or 90 seconds elapses
+
+Exit 0 only if all checks pass. The pod stays in the namespace for the
+operator to inspect (no hook-delete-policy on test pods so logs are
+readable after the run). Re-running `helm test` overwrites it.
+
+Opt out with `--set tests.enabled=false`.
+*/}}
+{{- $testsEnabled := true }}
+{{- if and .Values.tests (hasKey .Values.tests "enabled") }}
+{{- $testsEnabled = .Values.tests.enabled }}
+{{- end }}
+{{- if $testsEnabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-test-api-smoke
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test-api-smoke
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "10"
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+  containers:
+    - name: api-smoke
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: API_BASE
+          value: "http://{{ include "neio-leasingops.fullname" . }}-api:{{ .Values.api.service.port | default 8001 }}"
+        - name: DEMO_USERNAME
+          value: {{ (.Values.tests).demoUsername | default "demo@leasingops.ai" | quote }}
+        - name: DEMO_PASSWORD
+          value: {{ (.Values.tests).demoPassword | default "EVFbYx@RPt5NnpEZ" | quote }}
+        - name: DEMO_WORKSPACE
+          value: {{ (.Values.tests).demoWorkspace | default "11111111-1111-1111-1111-111111111111" | quote }}
+      command: ["python3", "-c"]
+      args:
+        - |
+          import json, os, sys, time, urllib.parse, urllib.request, urllib.error
+
+          api = os.environ["API_BASE"].rstrip("/")
+          username = os.environ["DEMO_USERNAME"]
+          password = os.environ["DEMO_PASSWORD"]
+          workspace = os.environ["DEMO_WORKSPACE"]
+
+          def fail(msg):
+              print(f"FAIL: {msg}", file=sys.stderr)
+              sys.exit(1)
+
+          def get(path, headers=None):
+              req = urllib.request.Request(api + path, headers=headers or {})
+              return urllib.request.urlopen(req, timeout=15)
+
+          def post_form(path, data, headers=None):
+              body = urllib.parse.urlencode(data).encode()
+              h = {"Content-Type": "application/x-www-form-urlencoded"}
+              if headers:
+                  h.update(headers)
+              req = urllib.request.Request(api + path, data=body, method="POST", headers=h)
+              return urllib.request.urlopen(req, timeout=15)
+
+          def post_multipart(path, fields, files, headers=None):
+              # Minimal multipart/form-data without external deps.
+              import io, secrets
+              boundary = "----neio-test-" + secrets.token_hex(8)
+              buf = io.BytesIO()
+              for k, v in fields.items():
+                  buf.write(f"--{boundary}\r\n".encode())
+                  buf.write(f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode())
+                  buf.write(str(v).encode())
+                  buf.write(b"\r\n")
+              for k, (fname, content, ctype) in files.items():
+                  buf.write(f"--{boundary}\r\n".encode())
+                  buf.write(f'Content-Disposition: form-data; name="{k}"; filename="{fname}"\r\n'.encode())
+                  buf.write(f"Content-Type: {ctype}\r\n\r\n".encode())
+                  buf.write(content)
+                  buf.write(b"\r\n")
+              buf.write(f"--{boundary}--\r\n".encode())
+              h = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+              if headers:
+                  h.update(headers)
+              req = urllib.request.Request(api + path, data=buf.getvalue(), method="POST", headers=h)
+              return urllib.request.urlopen(req, timeout=30)
+
+          # 1. Health
+          print(f"[1/4] GET {api}/health")
+          r = get("/health")
+          health = json.loads(r.read())
+          if health.get("status") != "healthy":
+              fail(f"unexpected health response: {health}")
+          print(f"      -> {health}")
+
+          # 2. Login
+          print(f"[2/4] POST /api/v1/auth/login (form-encoded)")
+          r = post_form("/api/v1/auth/login", {"username": username, "password": password})
+          tok = json.loads(r.read())["access_token"]
+          auth_h = {"Authorization": f"Bearer {tok}"}
+          print(f"      -> got bearer token ({len(tok)} chars)")
+
+          # 3. Upload a tiny synthetic "document" (smoke only; the bundled
+          #    PDFs are too large to ship in the test pod image).
+          payload_text = (
+              "LEASE AGREEMENT\nAircraft: N12345 (Boeing 737-800)\n"
+              "Lessor: AeroCap Trust\nLessee: Codvo Test Airlines\n"
+              "Term: 60 months\nMonthly Rent: $325,000\n"
+          )
+          print(f"[3/4] POST /api/v1/leasingops/workspaces/{workspace}/documents/upload")
+          try:
+              r = post_multipart(
+                  f"/api/v1/leasingops/workspaces/{workspace}/documents/upload",
+                  fields={},
+                  files={"file": ("smoke-test.txt", payload_text.encode(), "text/plain")},
+                  headers=auth_h,
+              )
+              up = json.loads(r.read())
+          except urllib.error.HTTPError as e:
+              fail(f"upload failed: HTTP {e.code} {e.read().decode()[:300]}")
+          doc_id = up.get("document_id") or up.get("id")
+          if not doc_id:
+              fail(f"upload response missing document_id: {up}")
+          print(f"      -> document_id={doc_id} status={up.get('status')}")
+
+          # 4. Poll status briefly; just confirm the worker moved past upload.
+          print(f"[4/4] GET /api/v1/leasingops/documents/{doc_id}/status (poll)")
+          deadline = time.time() + 90
+          last = None
+          while time.time() < deadline:
+              try:
+                  r = get(f"/api/v1/leasingops/documents/{doc_id}/status", headers=auth_h)
+                  last = json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  print(f"  status poll HTTP {e.code}")
+                  time.sleep(3)
+                  continue
+              cur = last.get("current_agent")
+              st = last.get("status")
+              print(f"  status={st} current_agent={cur}")
+              if cur and cur != "upload":
+                  print("PASS: pipeline moved past upload stage")
+                  sys.exit(0)
+              if st == "failed":
+                  fail(f"document failed: {last.get('error')}")
+              time.sleep(5)
+          fail(f"pipeline did not advance past upload within 90s; last status: {last}")
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"
+{{- end }}

@@ -392,7 +392,19 @@ Upload one of the sample PDFs from `examples/sample-contracts/` and watch it pro
 
 The repository ships 45 real-looking lease documents across ten document types (lease agreements, delivery condition reports, MRCs, return condition reports, amendments, letters of intent, insurance certificates, technical acceptance reports, default notices, supplemental rent statements). You can upload a single document to smoke-test or the full set to load-test.
 
-On CPU each agent takes about 40 seconds per document. A full run of 45 documents across ten agents is around 4.5 hours.
+On CPU each agent takes about 40 seconds per document. A full run of 45 documents across ten agents is around 4.5 hours. On GPU (g5.4xlarge or similar) the same run completes in around 30 to 60 minutes.
+
+## Smoke test with `helm test`
+
+The chart ships a test Pod that exercises the critical path (health check, login, upload, pipeline progress) and exits 0 only if all four pass. Run it any time after install:
+
+```
+helm test neio-leasingops -n leasingops --timeout 3m
+```
+
+The test takes ~10 seconds and is safe to re-run. It uploads a tiny synthetic document, asserts the worker picks it up, and confirms the pipeline moves past the `upload` stage. The pod is named `<release>-test-api-smoke` and stays in the namespace after the run so you can inspect logs.
+
+Opt out with `--set tests.enabled=false`.
 
 ## The ten agents
 
