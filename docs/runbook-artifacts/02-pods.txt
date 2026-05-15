@@ -1,0 +1,8 @@
+NAME                                                 READY   STATUS    RESTARTS   AGE     IP             NODE                                        NOMINATED NODE   READINESS GATES
+granite-3-3-2b-instruct-predictor-846cdf67ff-qdxzh   2/2     Running   0          84m     10.131.0.90    ip-10-0-3-179.us-east-2.compute.internal    <none>           <none>
+llamastack-757589cf5-9862p                           1/1     Running   0          69m     10.129.0.86    ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>
+neio-leasingops-api-568d69fc5-qspnl                  1/1     Running   0          29s     10.129.0.104   ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>
+neio-leasingops-app-ddf96c7f-kwcb5                   1/1     Running   0          36m     10.129.0.98    ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>
+neio-leasingops-worker-9d59fb876-5c5gn               1/1     Running   0          4m57s   10.129.0.103   ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>
+postgresql-54bcd67cbf-7btrd                          1/1     Running   0          85m     10.129.0.81    ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>
+redis-7c8c646477-hft6v                               1/1     Running   0          85m     10.129.0.82    ip-10-0-31-239.us-east-2.compute.internal   <none>           <none>

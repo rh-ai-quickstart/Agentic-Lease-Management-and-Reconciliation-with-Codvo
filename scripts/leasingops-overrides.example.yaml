@@ -1,0 +1,65 @@
+# Demo-cluster overrides for OpenShift restricted-v2 SCC compatibility.
+#
+# The chart bakes in fsGroup/runAsUser/runAsGroup=1000 and seccompProfile=RuntimeDefault.
+# OpenShift restricted-v2 won't let arbitrary UIDs through; it assigns UIDs from the
+# namespace's allowed range. The seccompProfile in the container is also being converted
+# by an admission webhook into a forbidden annotation, so we drop it too.
+# Setting each field to null forces Helm to *replace* the merged values, not overlay.
+
+api:
+  # Single replica because the uploads PVC is ReadWriteOnce. 2+ replicas can't
+  # both mount /app/uploads unless the cluster has a ReadWriteMany storage class.
+  replicas: 1
+  podSecurityContext:
+    # fsGroup MUST match the container UID's group (image USER is appuser uid=1000 gid=1000).
+    # The anyuid SCC granted to the neio-leasingops SA lets us use this even though
+    # restricted-v2 would normally remap to namespace's assigned range.
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+  route:
+    host: api-leasingops.apps.264c5202-codvoqs.openshiftpartnerlabs.com
+
+app:
+  replicas: 1
+  podSecurityContext:
+    # fsGroup MUST match the container UID's group (image USER is appuser uid=1000 gid=1000).
+    # The anyuid SCC granted to the neio-leasingops SA lets us use this even though
+    # restricted-v2 would normally remap to namespace's assigned range.
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+  # Next.js doesn't serve /api/health (the chart's default). Root path is fine.
+  livenessProbe:
+    path: /
+  readinessProbe:
+    path: /
+  route:
+    host: leasingops.apps.264c5202-codvoqs.openshiftpartnerlabs.com
+
+worker:
+  podSecurityContext:
+    # fsGroup MUST match the container UID's group (image USER is appuser uid=1000 gid=1000).
+    # The anyuid SCC granted to the neio-leasingops SA lets us use this even though
+    # restricted-v2 would normally remap to namespace's assigned range.
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+
+cache:
+  host: leasingops-redis

@@ -68,29 +68,74 @@ The vLLM pod is created by KServe and named `granite-3-3-2b-instruct-predictor-*
 oc get pods -n leasingops | grep predictor
 ```
 
-Install LlamaStack pointed at vLLM. The `pgvector.enabled=false` flag is required; without it the install fails on a missing PVC for an embedded pgvector instance you don't need:
+Install LlamaStack and wire it to the vLLM Service. Three things to get right or it silently doesn't work:
+
+- The chart value is `models.remote-llm.enabled=true` + `models.remote-llm.url=...`. Older docs say `vllm.url=...`; that key doesn't exist in chart 0.7.x and is silently ignored.
+- The vLLM Service port is `80`, not `8080`. Container internal port is 8080; the Service that the chart creates forwards on 80.
+- The URL must end in `/v1`. LlamaStack's `remote::vllm` provider appends path segments directly. Without the suffix, every chat completion gets 404 from upstream.
 
 ```
 helm install llamastack rh-ai-quickstart/llama-stack \
   --version 0.7.3 \
   --namespace leasingops \
-  --set vllm.url=http://granite-3-3-2b-instruct-vllm:8080 \
-  --set pgvector.enabled=false
+  --set pgvector.enabled=false \
+  --set models.remote-llm.enabled=true \
+  --set models.remote-llm.url=http://granite-3-3-2b-instruct-vllm:80/v1
 ```
 
-Wait for the deployment to roll out, then verify the model is registered. LlamaStack does not expose an OpenShift Route by default, so port-forward to its service:
+`pgvector.enabled=false` is also required. The chart's default tries to bring up an embedded pgvector PVC that the application doesn't use, and without disabling it the install fails.
+
+Wait for the deployment to roll out:
 
 ```
 oc rollout status deploy/llamastack -n leasingops --timeout=300s
+```
 
+LlamaStack does NOT auto-register models from the configured vLLM URL. You have to POST the model once. This is the most commonly missed step.
+
+```
+oc exec -n leasingops deploy/llamastack -- python3 -c "
+import urllib.request, json
+body = json.dumps({
+  'model_id': 'ibm-granite/granite-3.3-2b-instruct',
+  'provider_id': 'remote-llm',
+  'provider_model_id': 'ibm-granite/granite-3.3-2b-instruct',
+  'model_type': 'llm'
+}).encode()
+req = urllib.request.Request('http://localhost:8321/v1/models', data=body, method='POST',
+  headers={'Content-Type': 'application/json'})
+print(urllib.request.urlopen(req).read().decode())
+"
+```
+
+Verify the model is registered. LlamaStack does not expose an OpenShift Route by default, so port-forward to its Service:
+
+```
 oc port-forward -n leasingops svc/llamastack 8321:8321 &
 curl -s http://localhost:8321/v1/models | python3 -m json.tool
 kill %1
 ```
 
-You should see `remote-llm/ibm-granite/granite-3.3-2b-instruct` in the output. LlamaStack adds the `remote-llm/` prefix when it registers the model, and the chart uses that exact prefixed name in step 6.
+You should see `remote-llm/ibm-granite/granite-3.3-2b-instruct` in the output. The chart uses that exact prefixed name in step 6.
 
-The inference path that the worker calls is `/v1/chat/completions`.
+Optional smoke test: confirm the full path (LlamaStack → vLLM → Granite) returns a real completion:
+
+```
+oc exec -n leasingops deploy/llamastack -- python3 -c "
+import urllib.request, json
+body = json.dumps({
+  'model': 'remote-llm/ibm-granite/granite-3.3-2b-instruct',
+  'messages': [{'role':'user','content':'Reply with just OK.'}],
+  'max_tokens': 16
+}).encode()
+req = urllib.request.Request('http://localhost:8321/v1/chat/completions', data=body, method='POST',
+  headers={'Content-Type':'application/json'})
+out = json.loads(urllib.request.urlopen(req).read())
+print(out['choices'][0]['message']['content'])
+"
+```
+
+Expected output: `OK`.
 
 ## 4. Create the ACR pull secret
 
@@ -138,12 +183,71 @@ cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 helm dependency build ./leasingops/helm
 ```
 
-Then install the application chart:
+The chart references a service account named `neio-leasingops` but does not create one. Create it now and grant it the `anyuid` SCC so the images' built-in `appuser` (uid 1000) is accepted on restricted-v2 clusters:
+
+```
+oc create sa neio-leasingops -n leasingops
+oc adm policy add-scc-to-user anyuid -z neio-leasingops -n leasingops
+```
+
+The chart's default Postgres + Redis + MinIO subcharts don't play well with restricted-v2 SCC. The clean path is to skip them (you deployed your own in step 4) and to apply a small set of overrides that nullify the chart's hard-coded `runAsUser`, `seccompProfile`, and bad probe paths. Save this as `leasingops-overrides.yaml` next to the chart:
+
+```yaml
+api:
+  replicas: 1
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+  livenessProbe:
+    path: /
+  readinessProbe:
+    path: /
+
+app:
+  replicas: 1
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+  livenessProbe:
+    path: /
+  readinessProbe:
+    path: /
+
+worker:
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: null
+    runAsGroup: null
+  securityContext:
+    allowPrivilegeEscalation: null
+    runAsNonRoot: null
+    capabilities: null
+    seccompProfile: null
+
+cache:
+  host: leasingops-redis
+```
+
+Why each block is there is in the `Real-cluster gotchas` section below. Read it before changing the file.
+
+Install:
 
 ```
 helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops \
-  --set global.imagePullSecrets[0]=acr-pull-secret \
+  --set 'imagePullSecrets[0].name=acr-pull-secret' \
   --set api.image.repository=rhleasingopsacr.azurecr.io/leasingops-api \
   --set api.image.tag=20260331.01.0003 \
   --set app.image.repository=rhleasingopsacr.azurecr.io/leasingops-app \
@@ -153,8 +257,14 @@ helm install neio-leasingops ./leasingops/helm \
   --set llamastack.url=http://llamastack:8321 \
   --set llamastack.model=remote-llm/ibm-granite/granite-3.3-2b-instruct \
   --set llamastack.maxTokens=2048 \
-  -f leasingops/helm/values-openshift.yaml
+  --set database.internal.enabled=false \
+  --set cache.internal.enabled=false \
+  --set storage.internal.enabled=false \
+  -f leasingops/helm/values-openshift.yaml \
+  -f leasingops-overrides.yaml
 ```
+
+Quote `'imagePullSecrets[0].name=acr-pull-secret'` so zsh doesn't glob the `[0]`. The pull secret value must be set at the top-level `imagePullSecrets`, not `global.imagePullSecrets`; the chart only reads the top-level path.
 
 The image tags above are the ones validated in the Red Hat partner lab. Newer tags may exist; ask before changing them.
 
@@ -169,10 +279,10 @@ oc get pods -n leasingops
 You should see pods similar to these, all `Running`:
 
 ```
-granite-3-3-2b-instruct-predictor-xxxx        Running
+granite-3-3-2b-instruct-predictor-xxxx        Running   (on the GPU node)
 llamastack-xxxx                                Running
-neio-leasingops-api-xxxx                       Running (2 replicas)
-neio-leasingops-app-xxxx                       Running (2 replicas)
+neio-leasingops-api-xxxx                       Running   (1 replica; uploads PVC is RWO)
+neio-leasingops-app-xxxx                       Running   (1 replica)
 neio-leasingops-worker-xxxx                    Running
 postgresql-xxxx                                Running
 redis-xxxx                                     Running
@@ -242,6 +352,26 @@ OpenShift namespace: leasingops
 ```
 
 The worker calls `http://llamastack:8321/v1/chat/completions`. The API and worker share a ReadWriteOnce PVC named `leasingops-uploads` for uploaded PDFs. OpenShift's restricted SCC requires `fsGroup: 1000` for that PVC, which the chart sets.
+
+## Real-cluster gotchas
+
+These came out of a live deploy on a fresh OpenShift 4.21 partner lab cluster. Each one is the kind of thing where the chart looks like it installed but nothing actually serves traffic, so they're worth knowing about up front.
+
+| What | Effect | Fix in this README |
+|---|---|---|
+| Chart's `containerSecurityContext` in `values-openshift.yaml` doesn't match the field name `securityContext` the deployment templates read | Security context silently dropped, PodSecurity admission rejects pods, Helm reports "deployed" with no workload | Fixed in chart (`values-openshift.yaml` renamed). |
+| Chart hard-codes `runAsUser: 1000` in pod security context | Restricted-v2 SCC rejects (UID must be in namespace range, e.g. 1000790000+) | Override file nulls out runAsUser/runAsGroup; SA gets `anyuid` SCC so the image's `appuser` (uid 1000) is allowed. |
+| Container `seccompProfile: RuntimeDefault` is converted by an admission webhook into a deprecated annotation that the SCC forbids | Pod creation rejected | Override file sets `securityContext.seccompProfile: null`. |
+| vLLM Service port is `80`, not `8080` | Older docs say 8080 and produce 404s | Use `http://granite-3-3-2b-instruct-vllm:80/v1`. |
+| LlamaStack `remote::vllm` provider expects `base_url` to end in `/v1` | Without it, every chat completion returns `404 Not Found` from upstream | Append `/v1` on the install URL. |
+| LlamaStack doesn't auto-register models from the configured vLLM URL | Calling chat completions returns "Model not found" | One-time POST to `/v1/models` (shown in step 3). |
+| Chart's `llama-stack` install fails on a missing pgvector PVC by default | `helm install` fails | `--set pgvector.enabled=false`. |
+| Naming the Redis Service `redis` exactly collides with Kubernetes auto-injected service env vars (`REDIS_PORT=tcp://...`) | Worker constructs a malformed `REDIS_URL` and dies | Name the Service `leasingops-redis`; set `cache.host=leasingops-redis` in the override file. |
+| Chart references SA `neio-leasingops` but does not create it | ReplicaSet stuck on `serviceaccount not found` | `oc create sa neio-leasingops -n leasingops` before install. |
+| Pull secret must be set at top-level `imagePullSecrets`, not `global.imagePullSecrets` | API and worker pods stuck in `ImagePullBackOff` | `--set 'imagePullSecrets[0].name=acr-pull-secret'` (note the top-level key, and quote it so zsh doesn't glob `[0]`). |
+| App probe path defaults to `/api/health`, which the Next.js frontend doesn't serve | Container is SIGTERMed every minute → `CrashLoopBackOff` | Override file sets `app.livenessProbe.path: /` and `app.readinessProbe.path: /`. |
+| Uploads PVC is `ReadWriteOnce` | Second API/app replica stuck `ContainerCreating` when scheduled to a different node | Override file sets `api.replicas: 1` and `app.replicas: 1`. |
+| Chart template defined URL env vars BEFORE the source vars they reference | Kubernetes `$(VAR)` substitution only sees vars defined earlier; URLs ended up containing literal `$(POSTGRES_PORT)` | Fixed in chart. URL env vars now come AFTER `POSTGRES_*` / `REDIS_*` source vars in `templates/{api,worker}/deployment.yaml`. |
 
 ## Moving to GPU
 

@@ -1,0 +1,5 @@
+2026-05-15 08:46:38 [info     ] lease_document_processor_ready docling_url=http://docling:5001 pymupdf=True strategy=auto
+2026-05-15 08:46:38 [warning  ] langfuse_not_installed
+2026-05-15 08:46:38 [info     ] leasingops_worker_starting
+2026-05-15 08:46:38 [info     ] leasingops_job_queue_connected redis_url=redis://:df9d672b3e8d58f8ebb69826f08e5336@leasingops-redis:6379
+2026-05-15 08:46:38 [info     ] leasingops_worker_started
