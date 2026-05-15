@@ -30,3 +30,11 @@ kubeconfig
 # Temp
 tmp/
 .tmp/
+
+# Local-only demo artifacts and overrides. Anything produced during a live
+# walkthrough belongs on the operator's laptop, not in the repo.
+docs/DEMO_RUNBOOK.html
+docs/runbook-artifacts/
+scripts/leasingops-data-services.yaml
+scripts/leasingops-overrides.example.yaml
+scripts/teardown.sh

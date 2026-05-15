@@ -1,3 +1,0 @@
-NAME                  HOST/PORT                                                       PATH   SERVICES              PORT   TERMINATION     WILDCARD
-neio-leasingops-api   api-leasingops.apps.264c5202-codvoqs.openshiftpartnerlabs.com   /      neio-leasingops-api   http   edge/Redirect   None
-neio-leasingops-app   leasingops.apps.264c5202-codvoqs.openshiftpartnerlabs.com       /      neio-leasingops-app   http   edge/Redirect   None

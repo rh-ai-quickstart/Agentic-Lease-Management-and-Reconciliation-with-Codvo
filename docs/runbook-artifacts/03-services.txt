@@ -1,9 +1,0 @@
-NAME                                TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
-granite-3-3-2b-instruct-metrics     ClusterIP   172.30.73.31     <none>        8080/TCP   84m
-granite-3-3-2b-instruct-predictor   ClusterIP   None             <none>        80/TCP     84m
-granite-3-3-2b-instruct-vllm        ClusterIP   172.30.108.238   <none>        80/TCP     84m
-leasingops-redis                    ClusterIP   172.30.248.226   <none>        6379/TCP   42m
-llamastack                          ClusterIP   172.30.203.170   <none>        8321/TCP   74m
-neio-leasingops-api                 ClusterIP   172.30.250.171   <none>        8001/TCP   68m
-neio-leasingops-app                 ClusterIP   172.30.212.76    <none>        3000/TCP   68m
-neio-leasingops-postgresql          ClusterIP   172.30.98.34     <none>        5432/TCP   85m

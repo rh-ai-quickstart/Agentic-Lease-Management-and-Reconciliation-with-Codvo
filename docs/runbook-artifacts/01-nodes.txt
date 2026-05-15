@@ -1,4 +1,0 @@
-NAME                                        STATUS   ROLES                  AGE    VERSION
-ip-10-0-23-87.us-east-2.compute.internal    Ready    control-plane,master   2d3h   v1.34.6
-ip-10-0-3-179.us-east-2.compute.internal    Ready    worker                 39h    v1.34.6
-ip-10-0-31-239.us-east-2.compute.internal   Ready    worker                 2d2h   v1.34.6

@@ -1,5 +1,0 @@
-remote-llm -> remote::vllm
-sentence-transformers -> inline::sentence-transformers
----models---
-remote-llm/ibm-granite/granite-3.3-2b-instruct
-sentence-transformers/nomic-ai/nomic-embed-text-v1.5

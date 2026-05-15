@@ -172,7 +172,99 @@ A few notes on these fields:
 
 If your Postgres is in-cluster via the Bitnami subchart, the host is set automatically. If it is external, set `database.external.host` in values (see section 7).
 
-## 6. Install the chart
+## 6. Deploy PostgreSQL and Redis
+
+The chart ships with Bitnami subcharts for Postgres / Redis / MinIO, but on OpenShift restricted-v2 SCC they fight you for UID, fsGroup, and image-user reasons. The simple, reliable path is to deploy standalone Postgres and Redis with manifests that match the Service names the chart's ConfigMap defaults expect. Save the following as `leasingops-data-services.yaml` and apply it. It reuses the credentials from `neio-leasingops-secrets` so everything stays aligned.
+
+```yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neio-leasingops-postgresql
+  namespace: leasingops
+spec:
+  selector: { app: postgresql }
+  ports:
+    - { name: pg, port: 5432, targetPort: 5432 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: leasingops
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgresql } }
+  template:
+    metadata: { labels: { app: postgresql } }
+    spec:
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:15-alpine
+          ports: [{ containerPort: 5432 }]
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: neio-leasingops-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: neio-leasingops-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              value: leasingops
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "leasingops", "-d", "leasingops"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+      volumes: [{ name: data, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leasingops-redis
+  namespace: leasingops
+spec:
+  selector: { app: redis }
+  ports: [{ name: redis, port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: leasingops
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: docker.io/library/redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+          command: ["sh", "-c"]
+          args: ['exec redis-server --requirepass "$REDIS_PASSWORD" --save "" --appendonly no']
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: neio-leasingops-secrets, key: REDIS_PASSWORD } }
+          readinessProbe:
+            exec: { command: ["sh", "-c", 'redis-cli -a "$REDIS_PASSWORD" ping'] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+```
+
+```
+oc apply -f leasingops-data-services.yaml
+oc rollout status deploy/postgresql -n leasingops --timeout=180s
+oc rollout status deploy/redis -n leasingops --timeout=120s
+```
+
+The Redis Service is named `leasingops-redis`, not plain `redis`. Kubernetes auto-injects per-Service env vars (`REDIS_PORT=tcp://...`) for every Service in the namespace, and naming the Service `redis` collides with the `$(REDIS_PORT)` substitution the chart uses to build `REDIS_URL`. The worker then dies with `Port could not be cast to integer value as 'tcp:'`. Using the prefixed name avoids the clash.
+
+For Postgres, the Service name `neio-leasingops-postgresql` matches the chart's default DB host fallback, so no extra wiring is needed when the chart install runs in step 7.
+
+## 7. Install the chart
 
 The chart bundles PostgreSQL, Redis, and MinIO as subchart dependencies (see `Chart.yaml`). Pull them into `charts/` once before the first install:
 
@@ -190,7 +282,7 @@ oc create sa neio-leasingops -n leasingops
 oc adm policy add-scc-to-user anyuid -z neio-leasingops -n leasingops
 ```
 
-The chart's default Postgres + Redis + MinIO subcharts don't play well with restricted-v2 SCC. The clean path is to skip them (you deployed your own in step 4) and to apply a small set of overrides that nullify the chart's hard-coded `runAsUser`, `seccompProfile`, and bad probe paths. Save this as `leasingops-overrides.yaml` next to the chart:
+The chart's default Postgres + Redis + MinIO subcharts don't play well with restricted-v2 SCC. The clean path is to skip them (you deployed your own in step 6) and to apply a small set of overrides that nullify the chart's hard-coded `runAsUser`, `seccompProfile`, and bad probe paths. Save this as `leasingops-overrides.yaml` next to the chart:
 
 ```yaml
 api:
@@ -270,7 +362,7 @@ The image tags above are the ones validated in the Red Hat partner lab. Newer ta
 
 `llamastack.maxTokens` is capped at 2048 because Granite 3.3 2B has an 8192-token context and the agent prompts already consume around 4000 to 5000 tokens. Going higher causes context overflow errors.
 
-## 7. Verify everything is up
+## 8. Verify everything is up
 
 ```
 oc get pods -n leasingops
@@ -302,7 +394,7 @@ Get the frontend URL:
 echo "https://$(oc get route neio-leasingops-app -n leasingops -o jsonpath='{.spec.host}')"
 ```
 
-## 8. Log in and upload documents
+## 9. Log in and upload documents
 
 Open the frontend URL in a browser and log in with the demo credentials:
 
