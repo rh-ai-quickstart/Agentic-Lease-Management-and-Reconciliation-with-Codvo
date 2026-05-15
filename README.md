@@ -146,6 +146,7 @@ oc create secret generic neio-leasingops-secrets \
   --from-literal=POSTGRES_PASSWORD='<DB_PASSWORD>' \
   --from-literal=REDIS_PASSWORD='<REDIS_PASSWORD>' \
   --from-literal=JWT_SECRET_KEY="$(openssl rand -hex 32)" \
+  --from-literal=DEMO_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)" \
   --from-literal=ANTHROPIC_API_KEY='' \
   -n leasingops
 ```
@@ -168,6 +169,7 @@ stringData:
   POSTGRES_PASSWORD: <DB_PASSWORD>
   REDIS_PASSWORD: <REDIS_PASSWORD>
   JWT_SECRET_KEY: $(openssl rand -hex 32)
+  DEMO_PASSWORD: $(openssl rand -base64 18 | tr -d '/+=' | head -c 20)
   ANTHROPIC_API_KEY: ""
 EOF
 
@@ -188,6 +190,7 @@ A few notes on the keys regardless of path:
 - `POSTGRES_USER` and `POSTGRES_PASSWORD` are the credentials the API and worker use to connect to Postgres. If you are using an external database, make sure the database `leasingops` already exists and the user can connect to it.
 - `REDIS_PASSWORD` is optional. Omit it if your Redis is unauthenticated.
 - `JWT_SECRET_KEY` must be present. `openssl rand -hex 32` generates a strong one.
+- `DEMO_PASSWORD` is the password for the bundled `demo@leasingops.ai` login. The API refuses to start without it (no insecure default). Generate a fresh value per install; the example above produces a 20-char password. To retrieve it later, see step 9.
 - `ANTHROPIC_API_KEY` is required by the schema but unused when LlamaStack is the active provider. Leave it empty unless you want a Claude fallback path.
 
 If your Postgres is in-cluster via the Bitnami subchart, the host is set automatically. If it is external, set `database.external.host` in values (see section 7).
@@ -318,7 +321,7 @@ helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops \
   --set 'imagePullSecrets[0].name=acr-pull-secret' \
   --set api.image.repository=rhleasingopsacr.azurecr.io/leasingops-api \
-  --set api.image.tag=20260331.01.0003 \
+  --set api.image.tag=20260515.01.0001 \
   --set app.image.repository=rhleasingopsacr.azurecr.io/leasingops-app \
   --set app.image.tag=20260331.01.0002 \
   --set worker.image.repository=rhleasingopsacr.azurecr.io/leasingops-worker \
@@ -381,12 +384,23 @@ echo "https://$(oc get route neio-leasingops-app -n leasingops -o jsonpath='{.sp
 
 ## 9. Log in and upload documents
 
-Open the frontend URL in a browser and log in with the demo credentials:
+The demo email is `demo@leasingops.ai`. The demo password is whatever you set as `DEMO_PASSWORD` in step 5; the README does not contain the literal so each install gets its own credential. To retrieve it from the cluster:
 
 ```
-Email:    demo@leasingops.ai
-Password: EVFbYx@RPt5NnpEZ
+oc get secret neio-leasingops-secrets -n leasingops \
+  -o jsonpath='{.data.DEMO_PASSWORD}' | base64 -d
 ```
+
+To rotate it, edit the secret (or apply a new `SealedSecret`) and restart the API so the new env var takes effect:
+
+```
+oc set data secret/neio-leasingops-secrets -n leasingops \
+  DEMO_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)"
+
+oc rollout restart deploy/neio-leasingops-api -n leasingops
+```
+
+Open the frontend URL in a browser and log in with `demo@leasingops.ai` plus the retrieved password.
 
 Upload one of the sample PDFs from `examples/sample-contracts/` and watch it progress through the pipeline. Results appear in the document detail view as each agent completes.
 

@@ -220,6 +220,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "neio-leasingops.fullname" . }}-secrets
                   key: JWT_SECRET_KEY
+
+            # Demo login credential. The API refuses to start if DEMO_PASSWORD
+            # is unset, so the secret must include the DEMO_PASSWORD key.
+            # Retrieve the value at any time with:
+            #   oc get secret {{ include "neio-leasingops.fullname" . }}-secrets \
+            #     -n {{ .Release.Namespace }} \
+            #     -o jsonpath='{.data.DEMO_PASSWORD}' | base64 -d
+            - name: DEMO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: DEMO_PASSWORD
             - name: JWT_ALGORITHM
               value: {{ ((.Values.security).jwt).algorithm | default ((.Values.api).env).JWT_ALGORITHM | default "HS256" | quote }}
             - name: JWT_ACCESS_TOKEN_EXPIRE_MINUTES

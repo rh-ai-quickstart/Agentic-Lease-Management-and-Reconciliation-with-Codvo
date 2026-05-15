@@ -48,8 +48,15 @@ spec:
           value: "http://{{ include "neio-leasingops.fullname" . }}-api:{{ .Values.api.service.port | default 8001 }}"
         - name: DEMO_USERNAME
           value: {{ (.Values.tests).demoUsername | default "demo@leasingops.ai" | quote }}
+        # Read the demo password from the cluster secret so `helm test` works
+        # without anyone passing the literal in. The chart wires the same
+        # secret key into the API deployment; both must match for login to
+        # succeed.
         - name: DEMO_PASSWORD
-          value: {{ (.Values.tests).demoPassword | default "EVFbYx@RPt5NnpEZ" | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "neio-leasingops.fullname" . }}-secrets
+              key: DEMO_PASSWORD
         - name: DEMO_WORKSPACE
           value: {{ (.Values.tests).demoWorkspace | default "11111111-1111-1111-1111-111111111111" | quote }}
       command: ["python3", "-c"]

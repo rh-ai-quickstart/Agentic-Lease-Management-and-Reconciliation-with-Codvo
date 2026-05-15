@@ -48,7 +48,7 @@ spec:
         - name: api.image.repository
           value: rhleasingopsacr.azurecr.io/leasingops-api
         - name: api.image.tag
-          value: "20260331.01.0003"
+          value: "20260515.01.0001"
         - name: app.image.repository
           value: rhleasingopsacr.azurecr.io/leasingops-app
         - name: app.image.tag
