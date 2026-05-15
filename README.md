@@ -136,7 +136,9 @@ Quote the password. ACR tokens contain `$` and other characters the shell will t
 
 ## 5. Create the application secret
 
-The Helm release is named `neio-leasingops`, so the chart looks for a secret called `neio-leasingops-secrets` in the same namespace. Create it before you install the chart:
+The Helm release is named `neio-leasingops`, so the chart looks for a Secret called `neio-leasingops-secrets` in the same namespace. There are two paths for shipping it.
+
+**For demo and fast iteration, create it imperatively:**
 
 ```
 oc create secret generic neio-leasingops-secrets \
@@ -148,12 +150,45 @@ oc create secret generic neio-leasingops-secrets \
   -n leasingops
 ```
 
-A few notes on these fields:
+**For GitOps / Red Hat Demo Platform, ship a `SealedSecret` instead.** This is the recommended path because the encrypted manifest can be committed to your fork of the repo and applied by ArgoCD with no out-of-band secret distribution.
+
+Prerequisite: Sealed Secrets controller installed in the cluster (`bitnami-labs/sealed-secrets`). On OpenShift you can install it via OperatorHub. `kubeseal` on your laptop.
+
+```
+# 1. Write a Secret manifest locally (DO NOT commit this file).
+cat > /tmp/neio-leasingops-secrets.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: neio-leasingops-secrets
+  namespace: leasingops
+type: Opaque
+stringData:
+  POSTGRES_USER: leasingops
+  POSTGRES_PASSWORD: <DB_PASSWORD>
+  REDIS_PASSWORD: <REDIS_PASSWORD>
+  JWT_SECRET_KEY: $(openssl rand -hex 32)
+  ANTHROPIC_API_KEY: ""
+EOF
+
+# 2. Seal it against your cluster's public key.
+kubeseal --format yaml -f /tmp/neio-leasingops-secrets.yaml > sealed-secret.yaml
+
+# 3. Wipe the plaintext file. The sealed-secret.yaml is safe to commit.
+shred -u /tmp/neio-leasingops-secrets.yaml
+
+# 4. Apply (or commit to git and let ArgoCD apply).
+oc apply -f sealed-secret.yaml
+```
+
+The Sealed Secrets controller decrypts the `SealedSecret` and creates the `Secret` that the chart's deployments mount. The chart itself doesn't need to know whether the secret arrived imperatively or via SealedSecret; it just looks up `neio-leasingops-secrets` by name. The example `examples/sealed-secret.example.yaml` in this repo shows the resulting manifest shape.
+
+A few notes on the keys regardless of path:
 
 - `POSTGRES_USER` and `POSTGRES_PASSWORD` are the credentials the API and worker use to connect to Postgres. If you are using an external database, make sure the database `leasingops` already exists and the user can connect to it.
-- `REDIS_PASSWORD` is optional. Omit the line if your Redis is unauthenticated.
+- `REDIS_PASSWORD` is optional. Omit it if your Redis is unauthenticated.
 - `JWT_SECRET_KEY` must be present. `openssl rand -hex 32` generates a strong one.
-- `ANTHROPIC_API_KEY` is required by the schema but unused when LlamaStack is the active provider. You can leave it empty. If you want a Claude fallback path, put a real key here.
+- `ANTHROPIC_API_KEY` is required by the schema but unused when LlamaStack is the active provider. Leave it empty unless you want a Claude fallback path.
 
 If your Postgres is in-cluster via the Bitnami subchart, the host is set automatically. If it is external, set `database.external.host` in values (see section 7).
 
