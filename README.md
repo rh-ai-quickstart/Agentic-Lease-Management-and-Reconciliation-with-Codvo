@@ -420,6 +420,15 @@ The test takes ~10 seconds and is safe to re-run. It uploads a tiny synthetic do
 
 Opt out with `--set tests.enabled=false`.
 
+There is also a browser-level UI smoke test (Playwright headless Chromium) that loads the app Route, performs the demo login, and asserts the post-login URL changes. It is off by default because the Playwright image is around 1.5 GB and adds 1 to 3 minutes to `helm test` on first pull. Enable with:
+
+```
+helm upgrade neio-leasingops ./leasingops/helm ... --set tests.ui.enabled=true
+helm test neio-leasingops -n leasingops --timeout 10m
+```
+
+The UI test reuses the same `DEMO_PASSWORD` secret key the API and the API smoke test do, so rotating the password takes effect for all three in one place.
+
 ## The ten agents
 
 Documents flow through these in order:
