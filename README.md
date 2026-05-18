@@ -17,11 +17,14 @@ Stack:
 
 You need:
 
-- An OpenShift 4.14+ cluster, either the Red Hat partner lab or a local CRC. Three worker nodes at 8 CPU / 32 GB each is enough for CPU inference.
+- An OpenShift 4.19+ cluster;
+- Three worker nodes with 8 CPU / 32 GB each is enough for CPU inference.
+  - OpenShift AI Operator installed (Version 3.4)
 - `cluster-admin` or namespace `admin` on that cluster.
 - `oc` and `helm` 3.x installed locally.
 - PostgreSQL 15 and Redis 7 (either external or deployed in-cluster; the Bitnami charts used as subcharts will install both if you don't already have them).
-- ACR pull credentials for `rhleasingopsacr.azurecr.io`. Email `bala@codvo.ai` or `indranil@codvo.ai` to get a fresh token. The token is short-lived (24 hours), so request it right before you start.
+- ACR pull credentials for `rhleasingopsacr.azurecr.io`.
+  - Email `bala@codvo.ai` or `indranil@codvo.ai` to get a fresh token. The token is short-lived (24 hours), so request it right before you start.
 
 You do not need a Hugging Face token. The default model is `ibm-granite/granite-3.3-2b-instruct`, which is Apache 2.0 and not gated.
 
