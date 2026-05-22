@@ -72,18 +72,24 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Image pull secrets
+imagePullSecrets helper. Single source of truth for every workload and
+the ServiceAccount, so the chart cannot render it inconsistently.
+
+Accepts either form for global.imagePullSecrets / imagePullSecrets:
+  - a list of strings:  ["acr-pull-secret"]
+  - a list of maps:     [{name: acr-pull-secret}]
+Both render the correct `- name: acr-pull-secret`. global wins if set.
 */}}
 {{- define "neio-leasingops.imagePullSecrets" -}}
-{{- if .Values.global.imagePullSecrets }}
+{{- $secrets := (.Values.global).imagePullSecrets | default .Values.imagePullSecrets }}
+{{- with $secrets }}
 imagePullSecrets:
-{{- range .Values.global.imagePullSecrets }}
+{{- range . }}
+{{- if kindIs "string" . }}
   - name: {{ . }}
+{{- else }}
+  - name: {{ .name }}
 {{- end }}
-{{- else if .Values.imagePullSecrets }}
-imagePullSecrets:
-{{- range .Values.imagePullSecrets }}
-  - name: {{ . }}
 {{- end }}
 {{- end }}
 {{- end }}

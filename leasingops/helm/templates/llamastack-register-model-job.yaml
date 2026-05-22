@@ -8,8 +8,10 @@ this README told operators to run `oc exec ... python3 -c "..."` by
 hand; this Job does the same thing in-cluster on every install or
 upgrade, so a GitOps apply Just Works.
 
-The Job is idempotent: re-registering an existing model returns 200
-from LlamaStack with no side effect.
+The Job is idempotent: if LlamaStack already has the model (it
+auto-discovers it from the vLLM provider on startup), the POST returns
+400/409 "already exists" and the Job treats that as success. The verify
+step at the end is the real pass/fail check.
 
 Disable by setting:
   llamastack:
@@ -93,11 +95,17 @@ spec:
                   print(f"register OK: {resp.status} {resp.read().decode()[:300]}")
               except urllib.error.HTTPError as e:
                   payload = e.read().decode()
-                  # LlamaStack returns 200 on re-register so 4xx here means
-                  # the model id or provider id is genuinely wrong. Surface
-                  # the response so the operator can fix values.
-                  print(f"register HTTP {e.code}: {payload}", file=sys.stderr)
-                  sys.exit(1)
+                  # The model can already be registered for a legitimate
+                  # reason: LlamaStack auto-discovers it from the vLLM
+                  # provider on startup (RegistryEntrySource.listed_from_provider).
+                  # When it is, a re-register POST returns 400/409 with
+                  # "already exists". That is success, not failure: the
+                  # verify step below confirms the model is usable either way.
+                  if e.code in (400, 409) and "already exists" in payload.lower():
+                      print(f"model already registered (LlamaStack auto-discovered it); nothing to do")
+                  else:
+                      print(f"register HTTP {e.code}: {payload}", file=sys.stderr)
+                      sys.exit(1)
 
               # Verify it's in /v1/models.
               listed = json.loads(urllib.request.urlopen(base + "/v1/models").read())

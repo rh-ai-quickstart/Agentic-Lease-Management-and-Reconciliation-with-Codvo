@@ -37,7 +37,8 @@ data:
   {{- else if and .Values.cache .Values.cache.host }}
   {{- $redisHost = .Values.cache.host }}
   {{- else }}
-  {{- $redisHost = "redis" }}
+  {{- /* Default: the in-cluster Redis this chart deploys (templates/redis.yaml). */}}
+  {{- $redisHost = printf "%s-redis" (include "neio-leasingops.fullname" .) }}
   {{- end }}
   REDIS_HOST: {{ $redisHost | quote }}
   REDIS_PORT: {{ ((.Values.cache).external).port | default ((.Values.cache).port) | default "6379" | quote }}

@@ -39,8 +39,12 @@ spec:
           env:
             - name: NODE_ENV
               value: {{ .Values.app.env.nodeEnv | default "production" | quote }}
-            - name: NEXT_PUBLIC_API_URL
-              value: {{ .Values.app.env.apiUrl | quote }}
+            # Runtime backend address. The Next.js server reads UIP_API_URL
+            # and proxies /api/v1/* to it (see the rewrite in next.config.ts).
+            # Defaults to the in-cluster API Service; nothing is baked into
+            # the client bundle, so this one image works on any cluster.
+            - name: UIP_API_URL
+              value: {{ .Values.app.env.apiUrl | default (printf "http://%s-api:%v" (include "neio-leasingops.fullname" .) (.Values.api.service.port | default 8001)) | quote }}
             {{- if .Values.app.env.extraEnv }}
             {{- range $key, $value := .Values.app.env.extraEnv }}
             - name: {{ $key }}

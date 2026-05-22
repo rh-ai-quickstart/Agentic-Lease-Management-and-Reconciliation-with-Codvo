@@ -1,0 +1,99 @@
+{{- /*
+In-cluster PostgreSQL.
+
+Deployed by default. For an external managed database (RDS, Azure
+Database, Crunchy, etc.) set database.deployInCluster=false and point
+database.external.host at it.
+
+The Service name matches the chart's ConfigMap default for POSTGRES_HOST
+(<fullname>-postgresql), so the api and worker need no extra wiring.
+Credentials come from the same Secret the app uses, so they stay aligned.
+
+This is a single-replica Postgres with an emptyDir volume — fine for a
+quickstart / demo. For anything beyond that, use an external database.
+*/}}
+{{- $deploy := true }}
+{{- if and .Values.database (hasKey .Values.database "deployInCluster") }}
+{{- $deploy = .Values.database.deployInCluster }}
+{{- end }}
+{{- if $deploy }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  selector:
+    {{- include "neio-leasingops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "neio-leasingops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "neio-leasingops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      {{- include "neio-leasingops.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+      containers:
+        - name: postgres
+          image: {{ (.Values.database).image | default "docker.io/library/postgres:15-alpine" | quote }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: {{ ((.Values.database).external).name | default "leasingops" | quote }}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+{{- end }}

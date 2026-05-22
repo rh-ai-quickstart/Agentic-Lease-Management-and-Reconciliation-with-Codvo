@@ -39,21 +39,13 @@ annotations:
   artifacthub.io/prerelease: "false"
   artifacthub.io/containsSecurityUpdates: "false"
 
-dependencies:
-  - name: postgresql
-    version: "13.x.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: database.internal.enabled
-
-  - name: redis
-    version: "18.x.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: cache.internal.enabled
-
-  - name: minio
-    version: "12.x.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: storage.internal.enabled
+# No subchart dependencies. PostgreSQL and Redis are deployed by this
+# chart's own templates (templates/postgresql.yaml, templates/redis.yaml),
+# gated on database.deployInCluster / cache.deployInCluster. The Bitnami
+# subcharts were removed: they do not run cleanly on OpenShift
+# restricted-v2 SCC, and shipping them meant a `helm dependency build`
+# step plus a docs contradiction. For an external managed database, set
+# database.deployInCluster=false and point database.external.host at it.
 
 kubeVersion: ">=1.25.0-0"
 

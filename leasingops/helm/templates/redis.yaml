@@ -1,0 +1,84 @@
+{{- /*
+In-cluster Redis (the worker's job queue).
+
+Deployed by default. For an external Redis set cache.deployInCluster=false
+and point cache.host at it.
+
+Redis is password-protected; the password is the REDIS_PASSWORD key of
+the application Secret. The Service is named <fullname>-redis on purpose
+— a Service named plain "redis" collides with the REDIS_PORT env var
+Kubernetes auto-injects, which corrupts the worker's REDIS_URL.
+*/}}
+{{- $deploy := true }}
+{{- if and .Values.cache (hasKey .Values.cache "deployInCluster") }}
+{{- $deploy = .Values.cache.deployInCluster }}
+{{- end }}
+{{- if $deploy }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    {{- include "neio-leasingops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "neio-leasingops.fullname" . }}-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "neio-leasingops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "neio-leasingops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "neio-leasingops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      {{- include "neio-leasingops.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "neio-leasingops.serviceAccountName" . }}
+      containers:
+        - name: redis
+          image: {{ (.Values.cache).image | default "docker.io/library/redis:7-alpine" | quote }}
+          ports:
+            - containerPort: 6379
+          command: ["sh", "-c"]
+          args:
+            - 'exec redis-server --requirepass "$REDIS_PASSWORD" --save "" --appendonly no'
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-secrets
+                  key: REDIS_PASSWORD
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'redis-cli -a "$REDIS_PASSWORD" ping']
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+{{- end }}
