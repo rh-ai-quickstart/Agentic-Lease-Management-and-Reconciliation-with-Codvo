@@ -1,6 +1,8 @@
 # NeIO LeasingOps - Security Model Documentation
 
-This document describes the security architecture and best practices for NeIO LeasingOps deployments.
+This document describes the security architecture and recommended practices for NeIO LeasingOps deployments.
+
+> Scope note: this is a hardening reference, not a description of what the base quickstart enables out of the box. The quickstart ships application authentication (JWT) with the demo login, OpenShift-managed TLS on the routes, secrets in a Kubernetes Secret, and audit logging in the application. OIDC/IdP integration, RBAC beyond the application's own roles, NetworkPolicies, and encryption-at-rest are recommendations you apply yourself for a production posture. Sections below call out which is which where it matters.
 
 ## Table of Contents
 
@@ -326,7 +328,7 @@ rbac:
 
 ## Network Policies
 
-Network policies control pod-to-pod communication within the cluster.
+> The base chart does not ship NetworkPolicy resources, and there is no `networkPolicies` value to toggle. The manifests below are recommended hardening that you apply yourself with `oc apply` if your security posture calls for it. The pod selectors match the labels the chart actually sets (`app.kubernetes.io/component`). Review them against your namespace before applying, because a default-deny policy will break traffic until the allow rules are in place.
 
 ### Default Deny
 
@@ -347,7 +349,7 @@ spec:
 ### Allow Required Traffic
 
 ```yaml
-# Allow ingress from OpenShift Router
+# Allow ingress from the OpenShift router to the frontend
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -366,16 +368,16 @@ spec:
         - port: 3000
           protocol: TCP
 ---
-# Allow API to access database
+# Allow api and worker to reach the in-cluster PostgreSQL
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-api-to-database
+  name: allow-app-to-postgresql
   namespace: leasingops
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: postgresql
   ingress:
     - from:
         - podSelector:
@@ -387,31 +389,27 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
-```
-
-### Network Policy Configuration
-
-```yaml
-# values.yaml
-networkPolicies:
-  enabled: true
-
-  # Allow external access via ingress controller
-  allowIngress: true
-
-  # Allow egress to external LLM APIs (disable for air-gapped)
-  allowExternalAI: true
-
-  # Allow egress for DNS
-  allowDNS: true
-
-  # Additional allowed egress endpoints
-  additionalEgress:
-    - to:
-        - ipBlock:
-            cidr: 10.0.0.0/8  # Internal network
+---
+# Allow api and worker to reach the in-cluster Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-to-redis
+  namespace: leasingops
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
       ports:
-        - port: 443
+        - port: 6379
           protocol: TCP
 ```
 

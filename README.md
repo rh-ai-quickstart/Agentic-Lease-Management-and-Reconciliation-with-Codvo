@@ -197,9 +197,30 @@ oc get secret neio-leasingops-secrets -n leasingops \
   -o jsonpath='{.data.DEMO_PASSWORD}' | base64 -d
 ```
 
-Open the frontend URL, log in as `demo@leasingops.ai` with that password, and upload a PDF from `examples/sample-contracts/`. Each agent's result appears in the document detail view as it completes.
+Open the frontend URL and log in as `demo@leasingops.ai` with that password.
 
-The repository ships 45 sample lease documents across ten document types. Upload one to smoke-test or the full set to load-test. On a GPU the full ten-agent pipeline finishes in roughly a minute per document.
+## 6. Walk through the application
+
+The left sidebar groups the application into Command, Operations, Processing, and Administration. Here is a tour that exercises the whole pipeline end to end.
+
+1. **Upload a contract.** Go to **Operations > Fleet Portfolio**. Click **Upload**, pick a PDF from `examples/sample-contracts/`, and confirm. The upload card shows the pipeline working: it names each agent as it runs, from Contract Intake through Escalation.
+2. **Watch the agents run in sequence.** Open **Processing > Pipeline** while the document processes. This is the live stage view: each of the ten agents lights up in order as the worker completes it. On a GPU the full run takes roughly a minute per document.
+3. **Read the extracted terms.** When the run finishes, open the document from Fleet Portfolio, or go to **Processing > Term Extraction**. This is where the Term Extractor's output lands: dates, financials, parties, aircraft details, and conditions pulled from the contract.
+4. **Check return readiness.** Go to **Operations > Return Readiness**. The Return Readiness agent's redelivery gap analysis and cost estimates show here.
+5. **See the decision and any escalations.** **Command > Decisions** shows the return/extend/buyout recommendation with its risk rationale. **Command > Escalations** lists anything the pipeline routed to a stakeholder. **Processing > Evidence Packs** assembles the audit-ready bundle for a document.
+6. **Ask the assistant.** Click the **NeIO Assistant** button (bottom right of any screen) and ask a question about the contract you uploaded, for example "When does this lease expire?" or "What are the maintenance reserve obligations?". The assistant answers from the extracted data.
+7. **Review the audit trail.** **Administration > Audit Trail** records the activity for the workspace, including the documents you uploaded.
+
+The repository ships sample lease documents across ten document types in `examples/sample-contracts/`. Upload one to try the pipeline, or several to see the Fleet Portfolio fill up.
+
+## Demo mode versus production mode
+
+The application runs in one of two processing modes, set per workspace under **Administration > Settings**:
+
+- **Production mode (the default).** Uploads run the real pipeline: Docling extracts the PDF, then the ten agents process it through the background worker. This is what the quickstart's model server is for. Agent progress, audit events, and downstream pages (Decisions, Return Readiness, Evidence Packs) all reflect real results. A document takes roughly a minute per run on a GPU.
+- **Demo mode.** Uploads skip the worker and the model entirely: the API writes synthetic extraction data immediately and the document jumps straight to "extracted". Useful for a fast UI tour when you have no GPU or no worker, but it does not exercise the agents and it does not write audit events, so the Audit Trail and Pipeline pages stay empty. If you switch to demo mode, expect those screens to look inactive; that is the mode, not a bug.
+
+Leave it on production for a real walkthrough. Switch to demo only when you explicitly want the instant, synthetic path.
 
 ## The ten agents
 
@@ -263,11 +284,9 @@ The chart deploys its own single-replica PostgreSQL and Redis by default, which 
 
 The credentials still come from `neio-leasingops-secrets`. For an external database, create the `leasingops` database and user beforehand.
 
-## Appendix C: GitOps and Red Hat Demo Platform
+## Appendix C: GitOps
 
 The chart is GitOps-ready: the ServiceAccount, SCC binding, and model registration are all chart resources, so a single ArgoCD `Application` drives the install. `examples/argocd-application.yaml` is a working manifest. For secrets, ship `neio-leasingops-secrets` as a Bitnami `SealedSecret` (encrypt with `kubeseal`, commit the result); `examples/sealed-secret.example.yaml` shows the shape.
-
-On Red Hat Demo Platform, `llm.url`, `llm.apiToken`, and `llm.model` are injected at provisioning time. When they are set you can skip step 2 and the `llamastack.*` values; the chart uses the RHDP-provided values.
 
 ## Troubleshooting
 
@@ -276,6 +295,10 @@ API or worker pod in `CrashLoopBackOff`: almost always a missing key in `neio-le
 `helm test` fails at the login step: retrieve `DEMO_PASSWORD` (step 5) and confirm you can `curl` the API `/health` route. If health is fine but login fails, the API pod may not have restarted after a secret change; `oc rollout restart deploy/neio-leasingops-api -n leasingops`.
 
 A document stops partway through the pipeline: check the worker log, `oc logs deploy/neio-leasingops-worker -n leasingops --tail=100`. It prints a heartbeat every few cycles and a timing line per LLM call, so a stall is visible.
+
+The Audit Trail or agent progress looks empty after an upload: confirm the workspace is in production mode under **Administration > Settings**. Demo mode writes synthetic data without running the worker, so it produces no audit events and no live agent progress.
+
+The assistant gives an answer that disagrees with the contract: the default model is Granite 3.3 2B, a small model chosen so the quickstart runs on modest hardware. It can misread dates and figures, for example calling a current lease expired. Treat the assistant as a drafting aid and verify against the extracted terms on the document page. For sharper answers, point LlamaStack at a larger Granite model in step 2.
 
 vLLM pod stuck `Pending`: the GPU node is tainted and the install had no matching toleration. Re-run step 2 with the toleration flags.
 

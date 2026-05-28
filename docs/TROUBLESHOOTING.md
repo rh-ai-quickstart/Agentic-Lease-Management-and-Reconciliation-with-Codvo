@@ -64,7 +64,7 @@ oc adm top pods -n leasingops
 
 # Check PVC usage
 oc get pvc -n leasingops
-oc exec <postgresql-pod> -n leasingops -- df -h /bitnami/postgresql
+oc exec deploy/neio-leasingops-postgresql -n leasingops -- df -h /var/lib/postgresql/data
 ```
 
 ---
@@ -76,7 +76,7 @@ oc exec <postgresql-pod> -n leasingops -- df -h /bitnami/postgresql
 **Symptoms:**
 ```
 NAME                              READY   STATUS    RESTARTS   AGE
-leasingops-api-xxx                0/1     Pending   0          5m
+neio-leasingops-api-xxx                0/1     Pending   0          5m
 ```
 
 **Causes and Solutions:**
@@ -117,7 +117,7 @@ leasingops-api-xxx                0/1     Pending   0          5m
 **Symptoms:**
 ```
 NAME                              READY   STATUS             RESTARTS   AGE
-leasingops-api-xxx                0/1     CrashLoopBackOff   5          10m
+neio-leasingops-api-xxx                0/1     CrashLoopBackOff   5          10m
 ```
 
 **Diagnostic Steps:**
@@ -159,7 +159,7 @@ oc get pod <pod-name> -n leasingops -o jsonpath='{.status.containerStatuses[0].l
 **Symptoms:**
 ```
 NAME                              READY   STATUS     RESTARTS   AGE
-leasingops-api-xxx                0/1     Init:0/1   0          5m
+neio-leasingops-api-xxx                0/1     Init:0/1   0          5m
 ```
 
 **Solution:**
@@ -190,7 +190,7 @@ oc wait --for=condition=ready pod -l app=postgresql -n leasingops --timeout=120s
 oc get pods -l app.kubernetes.io/name=postgresql -n leasingops
 
 # Test connectivity from API pod
-oc exec -it deployment/leasingops-api -n leasingops -- \
+oc exec -it deployment/neio-leasingops-api -n leasingops -- \
   python -c "import psycopg2; print(psycopg2.connect('$DATABASE_URL'))"
 
 # Check PostgreSQL logs
@@ -205,28 +205,28 @@ oc logs -l app.kubernetes.io/name=postgresql -n leasingops --tail=50
    oc get secret db-credentials -n leasingops -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
 
    # Reset password if needed
-   oc exec -it leasingops-postgresql-0 -n leasingops -- \
+   oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
      psql -U postgres -c "ALTER USER leasingops PASSWORD 'new-password';"
    ```
 
 2. **Database Does Not Exist**
    ```bash
    # Create database
-   oc exec -it leasingops-postgresql-0 -n leasingops -- \
+   oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
      psql -U postgres -c "CREATE DATABASE leasingops;"
    ```
 
 3. **pgvector Extension Missing**
    ```bash
    # Install pgvector extension
-   oc exec -it leasingops-postgresql-0 -n leasingops -- \
+   oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
      psql -U postgres -d leasingops -c "CREATE EXTENSION IF NOT EXISTS vector;"
    ```
 
 4. **Connection Pool Exhausted**
    ```bash
    # Check active connections
-   oc exec -it leasingops-postgresql-0 -n leasingops -- \
+   oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
      psql -U postgres -c "SELECT count(*) FROM pg_stat_activity;"
 
    # Increase max_connections in values.yaml
@@ -246,7 +246,7 @@ oc logs -l app.kubernetes.io/name=postgresql -n leasingops --tail=50
 oc get pods -l app.kubernetes.io/name=redis -n leasingops
 
 # Test Redis connectivity
-oc exec -it deployment/leasingops-api -n leasingops -- \
+oc exec -it deployment/neio-leasingops-api -n leasingops -- \
   python -c "import redis; r = redis.from_url('$REDIS_URL'); print(r.ping())"
 
 # Check Redis logs
@@ -265,7 +265,7 @@ oc get secret redis-credentials -n leasingops -o jsonpath='{.data.redis-password
 **Symptoms:**
 ```
 NAME                              READY   STATUS             RESTARTS   AGE
-leasingops-api-xxx                0/1     ImagePullBackOff   0          5m
+neio-leasingops-api-xxx                0/1     ImagePullBackOff   0          5m
 ```
 
 **Diagnostic Steps:**
@@ -299,14 +299,14 @@ oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
    oc secrets link default acr-secret --for=pull -n leasingops
 
    # Or add to deployment
-   oc patch deployment leasingops-api -n leasingops \
+   oc patch deployment neio-leasingops-api -n leasingops \
      -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
    ```
 
 3. **Invalid Credentials**
    ```bash
    # Test pull secret manually
-   oc run test-pull --image=rhleasingopsacr.azurecr.io/leasingops-api:latest \
+   oc run test-pull --image=rhleasingopsacr.azurecr.io/leasingops-api:20260515.01.0001 \
      --restart=Never --rm -it \
      --overrides='{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}' \
      -n leasingops -- echo "Pull successful"
@@ -321,71 +321,44 @@ oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
 
 ---
 
-## Token Validation Errors
+## Token and secret errors
 
-### Issue: License Token Invalid
+There is no separate application "license token" in this deployment. The only credentials are the image pull secret (`acr-pull-secret`) and the application secret (`neio-leasingops-secrets`), both created in README step 3.
+
+### Issue: API or worker won't start, missing secret key
 
 **Symptoms:**
-- "Invalid license token" in logs
-- Application refuses to start
-- "License expired" errors
+- API or worker in `CrashLoopBackOff`
+- Logs mention a missing environment variable such as `DEMO_PASSWORD`, `JWT_SECRET_KEY`, or `POSTGRES_PASSWORD`
 
-**Diagnostic Steps:**
+The API refuses to start if a required key is absent from `neio-leasingops-secrets`. Confirm every key is present:
 
 ```bash
-# Check token is set
-oc get secret neio-license -n leasingops -o jsonpath='{.data.token}' | base64 -d | head -c 20
-
-# Validate token
-./scripts/validate-token.sh
+oc get secret neio-leasingops-secrets -n leasingops -o jsonpath='{.data}' | tr ',' '\n'
 ```
 
-**Solutions:**
+Expected keys: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET_KEY`, `DEMO_PASSWORD`, `ANTHROPIC_API_KEY`. If one is missing, recreate the secret (README step 3) and restart:
 
-1. **Token Not Set**
-   ```bash
-   # Create/update license secret
-   oc create secret generic neio-license \
-     --from-literal=token=$NEIO_LICENSE_TOKEN \
-     -n leasingops \
-     --dry-run=client -o yaml | oc apply -f -
-
-   # Restart pods to pick up new token
-   oc rollout restart deployment/leasingops-api -n leasingops
-   ```
-
-2. **Token Expired**
-   - Contact sales@codvo.ai for token renewal
-   - Update the secret with new token
-
-3. **Token Format Invalid**
-   - Ensure no extra whitespace or newlines
-   - Token should be base64-safe characters only
+```bash
+oc rollout restart deploy/neio-leasingops-api deploy/neio-leasingops-worker -n leasingops
+```
 
 ### Issue: JWT Authentication Failures
 
 **Symptoms:**
 - "401 Unauthorized" responses
-- "Invalid token" errors
-- "Token expired" messages
+- "Invalid token" or "Token expired" errors
 
-**Solutions:**
+Update just the JWT key in place so the other keys are not disturbed, then restart:
 
 ```bash
-# Check JWT secret is set
-oc get secret app-secrets -n leasingops -o jsonpath='{.data.JWT_SECRET_KEY}' | base64 -d | wc -c
-# Should be at least 32 characters
+oc patch secret neio-leasingops-secrets -n leasingops \
+  --type merge -p "{\"stringData\":{\"JWT_SECRET_KEY\":\"$(openssl rand -hex 32)\"}}"
 
-# Regenerate JWT secret
-JWT_SECRET=$(openssl rand -hex 32)
-oc create secret generic app-secrets \
-  --from-literal=JWT_SECRET_KEY=$JWT_SECRET \
-  -n leasingops \
-  --dry-run=client -o yaml | oc apply -f -
-
-# Restart API to pick up new secret
-oc rollout restart deployment/leasingops-api -n leasingops
+oc rollout restart deploy/neio-leasingops-api -n leasingops
 ```
+
+Rotating `JWT_SECRET_KEY` invalidates existing logins, so users will need to log in again.
 
 ---
 
@@ -466,10 +439,10 @@ oc describe nodes | grep -A 10 "nvidia.com/gpu"
 
 ```bash
 # Check API metrics
-curl -s http://leasingops-api:8000/metrics | grep http_request_duration
+curl -s http://neio-leasingops-api:8001/metrics | grep http_request_duration
 
 # Check database query times
-oc exec -it leasingops-postgresql-0 -n leasingops -- \
+oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
   psql -U postgres -d leasingops -c "SELECT query, mean_time FROM pg_stat_statements ORDER BY mean_time DESC LIMIT 10;"
 
 # Check API pod resources
@@ -492,7 +465,7 @@ oc adm top pods -l app.kubernetes.io/component=api -n leasingops
 
 2. **Add Database Indexes**
    ```bash
-   oc exec -it leasingops-postgresql-0 -n leasingops -- \
+   oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
      psql -U postgres -d leasingops -c "
        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contracts_created
        ON contracts(created_at DESC);
@@ -518,11 +491,11 @@ oc adm top pods -l app.kubernetes.io/component=api -n leasingops
 
 ```bash
 # Check queue depth
-oc exec -it deployment/leasingops-api -n leasingops -- \
+oc exec -it deployment/neio-leasingops-api -n leasingops -- \
   python -c "import redis; r = redis.from_url('$REDIS_URL'); print(r.llen('celery'))"
 
 # Check worker status
-oc exec -it deployment/leasingops-worker -n leasingops -- \
+oc exec -it deployment/neio-leasingops-worker -n leasingops -- \
   celery -A app.worker inspect active
 
 # Check worker logs for errors
@@ -533,7 +506,7 @@ oc logs -l app.kubernetes.io/component=worker -n leasingops --tail=100
 
 1. **Scale Workers**
    ```bash
-   oc scale deployment/leasingops-worker --replicas=5 -n leasingops
+   oc scale deployment/neio-leasingops-worker --replicas=5 -n leasingops
    ```
 
 2. **Increase Worker Concurrency**
@@ -579,20 +552,20 @@ oc exec -it <pod-name> -n leasingops -- \
 
 ```bash
 # Temporarily enable debug logging
-oc set env deployment/leasingops-api LOG_LEVEL=DEBUG -n leasingops
+oc set env deployment/neio-leasingops-api LOG_LEVEL=DEBUG -n leasingops
 
 # Watch debug logs
-oc logs -f deployment/leasingops-api -n leasingops
+oc logs -f deployment/neio-leasingops-api -n leasingops
 
 # Revert to INFO
-oc set env deployment/leasingops-api LOG_LEVEL=INFO -n leasingops
+oc set env deployment/neio-leasingops-api LOG_LEVEL=INFO -n leasingops
 ```
 
 ### Access Application Shell
 
 ```bash
 # Shell into API pod
-oc exec -it deployment/leasingops-api -n leasingops -- /bin/bash
+oc exec -it deployment/neio-leasingops-api -n leasingops -- /bin/bash
 
 # Run Python debugging
 python -c "from app.core.config import settings; print(settings.dict())"
@@ -602,7 +575,7 @@ python -c "from app.core.config import settings; print(settings.dict())"
 
 ```bash
 # Connect to PostgreSQL
-oc exec -it leasingops-postgresql-0 -n leasingops -- \
+oc exec -it deploy/neio-leasingops-postgresql -n leasingops -- \
   psql -U postgres -d leasingops
 
 # Useful queries
@@ -625,8 +598,8 @@ LIMIT 10;
 oc run network-debug --image=nicolaka/netshoot --rm -it --restart=Never -n leasingops
 
 # Inside pod:
-nslookup leasingops-postgresql
-curl -v http://leasingops-api:8000/health
+nslookup neio-leasingops-postgresql
+curl -v http://neio-leasingops-api:8001/health
 ```
 
 ---
@@ -640,9 +613,9 @@ curl -v http://leasingops-api:8000/health
 **Solution:**
 ```bash
 # Check DATABASE_URL environment variable
-oc exec deployment/leasingops-api -n leasingops -- printenv DATABASE_URL
+oc exec deployment/neio-leasingops-api -n leasingops -- printenv DATABASE_URL
 
-# Should be: postgresql://user:pass@leasingops-postgresql:5432/leasingops
+# Should be: postgresql://user:pass@neio-leasingops-postgresql:5432/leasingops
 ```
 
 ### "No such collection: documents"
@@ -668,7 +641,7 @@ curl -X PUT "http://leasingops-qdrant:6333/collections/documents" \
 
 **Solution:**
 ```bash
-oc exec -it deployment/leasingops-api -n leasingops -- \
+oc exec -it deployment/neio-leasingops-api -n leasingops -- \
   python -m alembic upgrade head
 ```
 

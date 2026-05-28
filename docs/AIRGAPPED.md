@@ -2,6 +2,8 @@
 
 This guide covers deploying NeIO LeasingOps in air-gapped (disconnected) environments where there is no internet access.
 
+> Status: this air-gapped path has not been re-validated against the current chart. The image-mirroring and certificate steps are sound general OpenShift guidance, but the Helm values examples predate the current chart and include keys it no longer reads. Treat this as a starting template, not a tested procedure, and use the real `leasingops/helm/values-airgapped.yaml` as your base. Contact Codvo before an air-gapped deployment.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -141,23 +143,22 @@ storageConfig:
     path: ./mirror-data
 mirror:
   additionalImages:
-    - name: rhleasingopsacr.azurecr.io/leasingops-app:1.0.0
-    - name: rhleasingopsacr.azurecr.io/leasingops-api:1.0.0
-    - name: rhleasingopsacr.azurecr.io/leasingops-worker:1.0.0
-    - name: docker.io/bitnami/postgresql:16
-    - name: docker.io/bitnami/redis:7.2
-    - name: docker.io/qdrant/qdrant:v1.7.4
+    # Use the image tags from the README install command.
+    - name: rhleasingopsacr.azurecr.io/leasingops-app:20260521.01.0002
+    - name: rhleasingopsacr.azurecr.io/leasingops-api:20260515.01.0001
+    - name: rhleasingopsacr.azurecr.io/leasingops-worker:20260515.01.0001
+    - name: docker.io/library/postgres:15-alpine
+    - name: docker.io/library/redis:7-alpine
+    # Plus the vLLM and LlamaStack images pulled by the Red Hat AI
+    # Architecture charts, and the Granite model files.
 ```
 
 ```bash
-# Create mirror archive
+# Create the mirror archive in the connected environment only.
 oc mirror --config imageset-config.yaml file://mirror-output
-
-# Transfer mirror-output directory to air-gapped environment
-
-# In air-gapped environment, push to internal registry
-oc mirror --from file://mirror-output docker://internal-registry.example.com
 ```
+
+The transfer to portable media is Step 3; the push into the internal registry happens inside the air-gapped environment in Step 4.
 
 ### Step 3: Export to Portable Media
 
@@ -618,86 +619,22 @@ spec:
 
 ### Step 1: Prepare Air-Gapped Values
 
-```yaml
-# values-airgapped.yaml
-global:
-  licenseToken: "<your-license-token>"
-  domain: "leasingops.apps.cluster.local"
+Use the real values file in the repo, `leasingops/helm/values-airgapped.yaml`, as your base rather than copying a block from this guide. Edit it for your environment: set the internal registry under `global.imageRegistry`, the pull secret under `global.imagePullSecrets`, and confirm the image tags match what you mirrored in Step 2. Because the chart deploys its own PostgreSQL and Redis, no separate database or cache values are needed; the chart pulls `postgres:15-alpine` and `redis:7-alpine` from your mirror.
 
-  # Internal registry
-  imageRegistry: "internal-registry.example.com"
-  imagePullSecrets:
-    - internal-registry-secret
-
-# Override all images
-app:
-  image:
-    repository: internal-registry.example.com/leasingops/app
-    tag: "1.0.0"
-
-api:
-  image:
-    repository: internal-registry.example.com/leasingops/api
-    tag: "1.0.0"
-
-worker:
-  image:
-    repository: internal-registry.example.com/leasingops/worker
-    tag: "1.0.0"
-
-postgresql:
-  image:
-    registry: internal-registry.example.com
-    repository: bitnami/postgresql
-    tag: "16"
-
-redis:
-  image:
-    registry: internal-registry.example.com
-    repository: bitnami/redis
-    tag: "7.2"
-
-qdrant:
-  image:
-    repository: internal-registry.example.com/qdrant/qdrant
-    tag: "v1.7.4"
-
-# AI Configuration for local serving
-ai:
-  provider: "openshift-ai"
-
-  openshiftAI:
-    enabled: true
-    servingRuntime: "vllm"
-    modelName: "mistral-7b"
-    endpoint: "http://mistral-7b.leasingops.svc.cluster.local"
-
-  embedding:
-    provider: "local"
-    local:
-      enabled: true
-      endpoint: "http://embedding-service.leasingops.svc.cluster.local:8080"
-
-# Disable external dependencies
-externalDependencies:
-  allowExternalAI: false
-  allowTelemetry: false
-  allowExternalStorage: false
-```
+The model server (vLLM and LlamaStack) is deployed separately from the Red Hat AI Architecture charts, pointed at mirrored images and pre-staged Granite model files. That is the part that most needs validation in your specific air-gapped setup.
 
 ### Step 2: Package and Transfer Helm Chart
 
 ```bash
-# In connected environment — clone repo and package chart
+# In the connected environment, clone the repo and package the chart
 git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo.git
 helm package Agentic-Lease-Management-and-Reconciliation-with-Codvo/leasingops/helm
 
-# Transfer leasingops-*.tgz to air-gapped environment
-
-# In air-gapped environment, install from local chart
-helm install leasingops ./leasingops-*.tgz \
+# Transfer neio-leasingops-*.tgz to the air-gapped environment, then install
+helm install neio-leasingops ./neio-leasingops-*.tgz \
     --namespace leasingops \
-    -f values-airgapped.yaml
+    -f Agentic-Lease-Management-and-Reconciliation-with-Codvo/leasingops/helm/values-openshift.yaml \
+    -f Agentic-Lease-Management-and-Reconciliation-with-Codvo/leasingops/helm/values-airgapped.yaml
 ```
 
 ### Step 3: Verify Deployment
@@ -707,7 +644,7 @@ helm install leasingops ./leasingops-*.tgz \
 oc get pods -n leasingops
 
 # Verify no external network attempts
-oc logs deployment/leasingops-api -n leasingops | grep -i "connection refused\|timeout"
+oc logs deployment/neio-leasingops-api -n leasingops | grep -i "connection refused\|timeout"
 
 # Test local LLM
 curl http://mistral-7b.leasingops.svc.cluster.local/v1/models
