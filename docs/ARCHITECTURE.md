@@ -343,7 +343,6 @@ Then update the LeasingOps release so the worker targets the larger model: set `
 
 - [Installation Guide](./INSTALLATION.md)
 - [Configuration Reference](./CONFIGURATION.md)
-- [AI Agents Guide](./AGENTS.md)
 - [Troubleshooting](./TROUBLESHOOTING.md)
 - [Red Hat OpenShift AI Integration](./REDHAT_AI_INTEGRATION.md)
 
