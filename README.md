@@ -422,7 +422,7 @@ Helm chart and deployment configuration: Apache 2.0 (see [`LICENSE`](LICENSE)). 
 
 - **Title:** Aircraft lease management and reconciliation with agents
 - **Description:** Process aircraft lease contracts end to end with a ten-agent pipeline on Red Hat OpenShift AI: extract terms, map obligations, calculate reserves, detect variance, assess return readiness, and recommend return/extend/buyout.
-- **Industry:** Transportation (aviation leasing)
+- **Industry:** Adopt and scale AI
 - **Product:** OpenShift AI
 - **Use case:** Agentic document processing and reconciliation
 - **Contributor org:** Codvo.ai
