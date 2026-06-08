@@ -34,7 +34,7 @@ Check [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) first — it covers the
 
 ## License
 
-By contributing, you agree that your contributions to the Helm chart and deployment configuration are licensed under Apache 2.0 (see [`LICENSE`](LICENSE)). The application container images are proprietary; see the "License" section of the [README](README.md#license).
+By contributing, you agree that your contributions to the Helm chart and deployment configuration are licensed under Apache 2.0. The application container images are proprietary; see the "License" section of the [README](README.md#license).
 
 ## Contact
 

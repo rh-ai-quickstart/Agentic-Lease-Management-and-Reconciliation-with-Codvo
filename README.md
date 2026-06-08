@@ -416,7 +416,7 @@ Repository: https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Rec
 
 ## License
 
-Helm chart and deployment configuration: Apache 2.0 (see [`LICENSE`](LICENSE)). Application images are proprietary and require a registry pull token from Codvo.
+Helm chart and deployment configuration: Apache 2.0. Application images are proprietary and require a registry pull token from Codvo.
 
 ## Tags
 
