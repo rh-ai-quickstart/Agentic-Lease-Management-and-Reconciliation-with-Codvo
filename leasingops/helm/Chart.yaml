@@ -33,7 +33,6 @@ annotations:
   com.redhat.delivery.backport: "false"
 
   # Artifact Hub annotations
-  artifacthub.io/license: Apache-2.0
   artifacthub.io/category: ai-machine-learning
   artifacthub.io/operator: "false"
   artifacthub.io/prerelease: "false"

@@ -30,7 +30,6 @@ maintainers:
 annotations:
   openshift.io/provider-display-name: CODVO.AI
   com.redhat.openshift.versions: "v4.12-v4.16"
-  artifacthub.io/license: Apache-2.0
   artifacthub.io/category: infrastructure
   # RSDP note: this chart declares infra dependencies.
   # RSDP will pre-install operators from this chart before deploying neio-leasingops-app.
