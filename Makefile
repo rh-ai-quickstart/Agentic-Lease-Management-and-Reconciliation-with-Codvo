@@ -38,7 +38,7 @@ help:
 	@echo "$(CYAN)  make infra$(RESET)   — Install infra chart (PostgreSQL, Redis, MinIO)"
 	@echo "$(CYAN)  make app$(RESET)     — Install app chart (assumes infra already present)"
 	@echo "$(CYAN)  make deploy$(RESET)  — Install infra then app (full stack)"
-	@echo "$(CYAN)  make destroy$(RESET) — Uninstall both releases"
+	@echo "$(CYAN)  make destroy$(RESET) — Purge everything (releases, PVCs, namespace)"
 	@echo "$(CYAN)  make lint$(RESET)    — Lint all Helm charts"
 	@echo "$(CYAN)  make status$(RESET)  — Show rollout status"
 	@echo ""
@@ -99,13 +99,10 @@ deploy: infra app
 	@echo "$(GREEN)$(BOLD)Full stack deployed successfully.$(RESET)"
 	@$(MAKE) status
 
-## destroy: Uninstall both releases (prompts for confirmation)
+## destroy: Purge everything (releases, PVCs, namespace) via scripts/teardown.sh
 destroy:
-	@echo "$(BOLD)WARNING: This will uninstall both $(RELEASE_APP) and $(RELEASE_INFRA) from namespace $(NAMESPACE).$(RESET)"
-	@read -p "Type 'yes' to confirm: " confirm && [ "$$confirm" = "yes" ] || (echo "Aborted." && exit 1)
-	-helm uninstall $(RELEASE_APP) --namespace $(NAMESPACE)
-	-helm uninstall $(RELEASE_INFRA) --namespace $(NAMESPACE)
-	@echo "$(GREEN)Releases uninstalled.$(RESET)"
+	NAMESPACE=$(NAMESPACE) ./scripts/teardown.sh
+	@echo "$(GREEN)Teardown complete.$(RESET)"
 
 ## status: Show rollout status for all deployments
 status:

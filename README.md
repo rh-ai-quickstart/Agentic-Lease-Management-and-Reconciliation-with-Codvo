@@ -201,6 +201,8 @@ Open the frontend URL and log in as `demo@leasingops.ai` with that password.
 
 ## 6. Walk through the application
 
+For a fuller, screen-by-screen guide to the features (document processing, the NeIO Assistant, and the dashboards), see [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+
 The left sidebar groups the application into Command, Operations, Processing, and Administration. Here is a tour that exercises the whole pipeline end to end.
 
 1. **Upload a contract.** Go to **Operations > Fleet Portfolio**. Click **Upload**, pick a PDF from `examples/sample-contracts/`, and confirm. The upload card shows the pipeline working: it names each agent as it runs, from Contract Intake through Escalation.
@@ -287,6 +289,18 @@ The credentials still come from `neio-leasingops-secrets`. For an external datab
 ## Appendix C: GitOps
 
 The chart is GitOps-ready: the ServiceAccount, SCC binding, and model registration are all chart resources, so a single ArgoCD `Application` drives the install. `examples/argocd-application.yaml` is a working manifest. For secrets, ship `neio-leasingops-secrets` as a Bitnami `SealedSecret` (encrypt with `kubeseal`, commit the result); `examples/sealed-secret.example.yaml` shows the shape.
+
+## Clean up
+
+To remove the quickstart and reset the cluster between demo runs, use the bundled teardown script. It is one command, idempotent, and needs no manual steps:
+
+```
+./scripts/teardown.sh            # prompts for confirmation
+./scripts/teardown.sh -y         # no prompt (automation / Red Hat Demo Platform)
+NAMESPACE=my-ns ./scripts/teardown.sh -y
+```
+
+It uninstalls every Helm release in the namespace (the app, plus `llamastack` and `llm-inference` if present), deletes the KServe InferenceServices and PersistentVolumeClaims, then deletes the namespace and waits for it to fully terminate, clearing stuck finalizers if the delete hangs. `make destroy` runs the same script. It does not touch cluster-scoped operators (the GPU operator, RHOAI / KServe / Knative).
 
 ## Troubleshooting
 

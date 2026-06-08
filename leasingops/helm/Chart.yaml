@@ -1,6 +1,6 @@
 apiVersion: v2
 name: neio-leasingops
-version: 1.0.0
+version: 1.0.1
 appVersion: "1.0.0"
 description: NeIO LeasingOps - AI-powered Aircraft Leasing Operations Platform
 type: application

@@ -37,5 +37,5 @@ docs/DEMO_RUNBOOK.html
 docs/runbook-artifacts/
 scripts/leasingops-data-services.yaml
 scripts/leasingops-overrides.example.yaml
-scripts/teardown.sh
 docs/CODEBASE_AUDIT.html
+docs/AIRGAPPED_ARCHITECTURE.html
