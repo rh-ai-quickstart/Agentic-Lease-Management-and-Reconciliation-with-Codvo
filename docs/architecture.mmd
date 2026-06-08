@@ -1,0 +1,39 @@
+flowchart TB
+    user(["User / Browser"])
+
+    subgraph ns["OpenShift namespace: leasingops"]
+      direction TB
+      app["neio-leasingops-app<br/>Next.js 15 frontend"]
+      api["neio-leasingops-api<br/>FastAPI"]
+      worker["neio-leasingops-worker<br/>Python · 10-agent pipeline"]
+      pg[("PostgreSQL 15")]
+      redis[("Redis 7<br/>job queue")]
+      pvc[("uploads PVC")]
+
+      subgraph rhoai["Red Hat OpenShift AI — model server"]
+        direction TB
+        ls["LlamaStack<br/>OpenAI-compatible gateway"]
+        vllm["vLLM<br/>IBM Granite 3.3 2B"]
+      end
+    end
+
+    user -->|HTTPS| app
+    app -->|proxy /api/*| api
+    api -->|enqueue job| redis
+    api --> pg
+    api -->|write upload| pvc
+    redis -->|dequeue| worker
+    worker -->|read upload| pvc
+    worker -->|store results| pg
+    worker -->|LLM calls| ls
+    ls --> vllm
+
+    classDef appNode fill:#ede9fe,stroke:#5B2EFF,stroke-width:1px,color:#111128;
+    classDef dataNode fill:#f3f4f6,stroke:#6b7280,stroke-width:1px,color:#111128;
+    classDef aiNode fill:#e0e7ff,stroke:#4f46e5,stroke-width:1px,color:#111128;
+    classDef userNode fill:#111128,stroke:#111128,color:#ffffff;
+
+    class app,api,worker appNode;
+    class pg,redis,pvc dataNode;
+    class ls,vllm aiNode;
+    class user userNode;
