@@ -43,8 +43,7 @@ documents moving through the ten-agent pipeline in real time (for example,
 
 The app processes in **Production mode** by default: every upload runs the real
 ten-agent pipeline through the worker and model server. The mode is set per
-workspace under **Administration > Settings > Document Processing Mode** (shown
-below switched to Demo).
+workspace under **Administration > Settings > Document Processing Mode**.
 
 When you have no GPU, or just want a fast click-through, switch to **Demo mode**:
 the API writes synthetic extraction data instantly, with no worker or model in the
@@ -56,8 +55,6 @@ loop. The difference:
 | What runs | Docling + the ten agents via the worker | Synthetic extraction data |
 | Needs the model server | Yes | No |
 | Audit Trail / Pipeline pages | Populated | Stay empty (no real work) |
-
-![Administration > Settings, system health and the mode toggle](images/13-settings.png)
 
 > Leave it on production for a real walkthrough so you can watch the agents run and
 > the audit trail fill in. Switch to demo only when you want the instant, synthetic
