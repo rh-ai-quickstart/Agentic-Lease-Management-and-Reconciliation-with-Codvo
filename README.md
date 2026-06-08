@@ -17,11 +17,8 @@ Process aircraft lease contracts end to end with a ten-agent pipeline on Red Hat
   - [Required user permissions](#required-user-permissions)
 - [Deploy](#deploy)
   - [Clone the repository](#clone-the-repository)
-  - [Step 1: create the namespace](#step-1-create-the-namespace)
-  - [Step 2: deploy the model server](#step-2-deploy-the-model-server)
-  - [Step 3: create the secrets](#step-3-create-the-secrets)
-  - [Step 4: install LeasingOps](#step-4-install-leasingops)
-  - [Step 5: verify and log in](#step-5-verify-and-log-in)
+  - [Install (one command)](#install-one-command)
+  - [Verify and log in](#verify-and-log-in)
   - [Walk through the application](#walk-through-the-application)
   - [Demo mode versus production mode](#demo-mode-versus-production-mode)
   - [The ten agents](#the-ten-agents)
@@ -115,14 +112,14 @@ The following are the resources to add on top of a base OpenShift cluster:
 **Cluster environment:**
 
 - An OpenShift 4.19+ cluster
-- The OpenShift AI Operator (version 3.4 or later). It provides KServe, which serves the Granite model in [Step 2](#step-2-deploy-the-model-server).
+- The OpenShift AI Operator (version 3.4 or later). It provides KServe, which serves the Granite model that the chart installs.
 
 You do not need a Hugging Face token. The model, `ibm-granite/granite-3.3-2b-instruct`, is Apache 2.0 and not gated.
 
 ### Required user permissions
 
 - `cluster-admin` on the cluster, or `admin` on the target namespace
-- ACR pull credentials for `rhleasingopsacr.azurecr.io`, used to pull the application images. Email `bala@codvo.ai` or `indranil@codvo.ai`; you will be sent a username and a password, which you use in [Step 3](#step-3-create-the-secrets).
+- ACR pull credentials for `rhleasingopsacr.azurecr.io`, used to pull the application images. Email `bala@codvo.ai` or `indranil@codvo.ai`; you will be sent a username and a password, which you pass to the install as `imageCredentials.username` / `imageCredentials.password`.
 
 ## Deploy
 
@@ -135,140 +132,37 @@ git clone https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Recon
 cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 ```
 
-### Step 1: create the namespace
+### Install (one command)
+
+A single `helm install` brings up the whole quickstart: the model server (vLLM + LlamaStack, pulled in as chart dependencies), the application (frontend, API, worker), and its PostgreSQL and Redis. The chart generates its own database, cache, JWT, and demo-login credentials, registers the Granite model with LlamaStack, and lets OpenShift assign the route hostnames — so there is nothing to pre-create.
+
+Fetch the chart dependencies once, then install. Pass the ACR pull credentials Codvo sent you (the application images are proprietary):
 
 ```bash
-oc new-project leasingops
-```
+helm dependency build ./leasingops/helm
 
-Every command below uses `-n leasingops`.
-
-### Step 2: deploy the model server
-
-Granite runs on the GPU through vLLM, fronted by LlamaStack. Both come from the Red Hat AI Architecture charts.
-
-```bash
-helm repo add rh-ai-quickstart https://rh-ai-quickstart.github.io/ai-architecture-charts
-helm repo update
-```
-
-Install vLLM with Granite 3.3 2B on the GPU:
-
-```bash
-helm install llm-inference rh-ai-quickstart/llm-service \
-  --version 0.5.9 \
-  --namespace leasingops \
-  --set device=gpu \
-  --set "models.granite-3-3-2b-instruct.enabled=true" \
-  --set "models.granite-3-3-2b-instruct.id=ibm-granite/granite-3.3-2b-instruct" \
-  --set "models.granite-3-3-2b-instruct.device=gpu"
-```
-
-If your GPU nodes carry a taint, add the matching toleration, for example:
-
-```bash
-  --set "deviceConfigs.gpu.tolerations[0].key=nvidia.com/gpu" \
-  --set "deviceConfigs.gpu.tolerations[0].operator=Exists" \
-  --set "deviceConfigs.gpu.tolerations[0].effect=NoSchedule"
-```
-
-KServe creates the vLLM pod as `granite-3-3-2b-instruct-predictor-*`. The first start downloads the model and takes a few minutes. Wait for it:
-
-```bash
-oc wait --for=condition=Ready pod \
-  -l serving.kserve.io/inferenceservice=granite-3-3-2b-instruct \
-  -n leasingops --timeout=600s
-```
-
-Install LlamaStack pointed at the vLLM Service:
-
-```bash
-helm install llamastack rh-ai-quickstart/llama-stack \
-  --version 0.7.3 \
-  --namespace leasingops \
-  --set pgvector.enabled=false \
-  --set models.remote-llm.enabled=true \
-  --set models.remote-llm.url=http://granite-3-3-2b-instruct-vllm:80/v1
-
-oc rollout status deploy/llamastack -n leasingops --timeout=300s
-```
-
-That is the whole model server. The LeasingOps chart in [Step 4](#step-4-install-leasingops) connects to LlamaStack and registers the Granite model for you.
-
-### Step 3: create the secrets
-
-Two secrets: one to pull the application images, one for the application's own credentials.
-
-**Image pull secret.** Use the username and password Codvo sent you:
-
-```bash
-oc create secret docker-registry acr-pull-secret \
-  --docker-server=rhleasingopsacr.azurecr.io \
-  --docker-username='<USERNAME>' \
-  --docker-password='<PASSWORD>' \
-  -n leasingops
-```
-
-Quote both values. ACR tokens contain characters the shell would otherwise expand.
-
-**Application secret.** This holds the database, cache, JWT, and demo-login credentials. The chart deploys its own PostgreSQL and Redis using these same values, so you can pick any password here; nothing external needs to match:
-
-```bash
-oc create secret generic neio-leasingops-secrets \
-  --from-literal=POSTGRES_USER=leasingops \
-  --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
-  --from-literal=REDIS_PASSWORD="$(openssl rand -hex 16)" \
-  --from-literal=JWT_SECRET_KEY="$(openssl rand -hex 32)" \
-  --from-literal=DEMO_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)" \
-  --from-literal=ANTHROPIC_API_KEY='' \
-  -n leasingops
-```
-
-`DEMO_PASSWORD` is the password for the bundled `demo@leasingops.ai` login. You retrieve it in [Step 5](#step-5-verify-and-log-in). `ANTHROPIC_API_KEY` can stay empty; it is only used for an optional Claude fallback path.
-
-For a GitOps deployment you would ship this secret as a `SealedSecret` instead of creating it imperatively. See [Appendix C](#appendix-c-gitops).
-
-### Step 4: install LeasingOps
-
-The chart needs your cluster's apps domain for the Route hostnames. Generate the overrides file with the domain filled in automatically:
-
-```bash
-cat > leasingops-overrides.yaml <<EOF
-global:
-  imagePullSecrets:
-    - acr-pull-secret
-api:
-  route:
-    host: api-leasingops.$(oc get ingress.config.openshift.io cluster -o jsonpath='{.spec.domain}')
-app:
-  route:
-    host: leasingops.$(oc get ingress.config.openshift.io cluster -o jsonpath='{.spec.domain}')
-EOF
-```
-
-Install:
-
-```bash
 helm install neio-leasingops ./leasingops/helm \
-  --namespace leasingops \
-  --set api.image.repository=rhleasingopsacr.azurecr.io/leasingops-api \
-  --set api.image.tag=20260515.01.0001 \
-  --set app.image.repository=rhleasingopsacr.azurecr.io/leasingops-app \
-  --set app.image.tag=20260521.01.0002 \
-  --set worker.image.repository=rhleasingopsacr.azurecr.io/leasingops-worker \
-  --set worker.image.tag=20260515.01.0001 \
-  --set llamastack.url=http://llamastack:8321 \
-  --set llamastack.model=remote-llm/ibm-granite/granite-3.3-2b-instruct \
-  --set llamastack.maxTokens=2048 \
-  -f leasingops/helm/values-openshift.yaml \
-  -f leasingops-overrides.yaml
+  --namespace leasingops --create-namespace \
+  --set imageCredentials.username='<USERNAME>' \
+  --set imageCredentials.password='<PASSWORD>' \
+  -f leasingops/helm/values-openshift.yaml
 ```
 
-That one command deploys everything: the frontend, API, worker, PostgreSQL, and Redis, plus the ServiceAccount and the SCC binding the application images need on OpenShift. A post-install job registers the Granite model with LlamaStack.
+Quote the credentials — ACR tokens contain characters the shell would otherwise expand. Or use the bundled wrapper, which runs `helm dependency build` for you:
 
-The image tags above are the validated build. Newer tags may exist; ask Codvo before changing them.
+```bash
+make install NAMESPACE=leasingops ACR_USER='<USERNAME>' ACR_PASS='<PASSWORD>'
+```
 
-### Step 5: verify and log in
+That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
+
+- **No GPU?** Add `--set llm-service.device=cpu --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu'`. Inference is much slower; see [Appendix A](#appendix-a-cpu-instead-of-gpu).
+- **Tainted GPU nodes?** Add the matching toleration, for example `--set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].key=nvidia.com/gpu' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].operator=Exists' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].effect=NoSchedule'`.
+- **GitOps / bring-your-own secret?** Set `secrets.sealed=true` and ship a `SealedSecret`; see [Appendix C](#appendix-c-gitops).
+
+The image tags are pinned to the validated build in `values-openshift.yaml`. Newer tags may exist; ask Codvo before changing them.
+
+### Verify and log in
 
 Wait for the application pods, then check them:
 
@@ -346,7 +240,7 @@ Documents flow through these in order:
 
 ### What you've accomplished
 
-You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model ([Step 2](#step-2-deploy-the-model-server)), use external data services ([Appendix B](#appendix-b-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix C](#appendix-c-gitops)).
+You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model (the `llm-service` values), use external data services ([Appendix B](#appendix-b-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix C](#appendix-c-gitops)).
 
 ### Delete
 
@@ -364,15 +258,16 @@ It uninstalls every Helm release in the namespace (the app, plus `llamastack` an
 
 ### Appendix A: CPU instead of GPU
 
-If you have no GPU node, install vLLM on CPU. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
+If you have no GPU node, serve Granite on CPU by adding two flags to the install. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
 
 ```bash
-helm install llm-inference rh-ai-quickstart/llm-service \
-  --version 0.5.9 \
-  --namespace leasingops \
-  --set device=cpu \
-  --set "models.granite-3-3-2b-instruct.enabled=true" \
-  --set "models.granite-3-3-2b-instruct.id=ibm-granite/granite-3.3-2b-instruct"
+helm install neio-leasingops ./leasingops/helm \
+  --namespace leasingops --create-namespace \
+  --set imageCredentials.username='<USERNAME>' \
+  --set imageCredentials.password='<PASSWORD>' \
+  --set llm-service.device=cpu \
+  --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu' \
+  -f leasingops/helm/values-openshift.yaml
 ```
 
 Everything else in the quickstart is identical.
@@ -396,17 +291,17 @@ The chart is GitOps-ready: the ServiceAccount, SCC binding, and model registrati
 
 ## Troubleshooting
 
-API or worker pod in `CrashLoopBackOff`: almost always a missing key in `neio-leasingops-secrets`. Confirm all six keys from [Step 3](#step-3-create-the-secrets) are present, then `oc rollout restart deploy/neio-leasingops-worker -n leasingops`.
+API or worker pod in `CrashLoopBackOff`: almost always a missing key in `neio-leasingops-secrets`. The chart generates this secret; confirm it exists (`oc get secret neio-leasingops-secrets -n leasingops`), then `oc rollout restart deploy/neio-leasingops-worker -n leasingops`.
 
-`helm test` fails at the login step: retrieve `DEMO_PASSWORD` ([Step 5](#step-5-verify-and-log-in)) and confirm you can `curl` the API `/health` route. If health is fine but login fails, the API pod may not have restarted after a secret change; `oc rollout restart deploy/neio-leasingops-api -n leasingops`.
+`helm test` fails at the login step: retrieve `DEMO_PASSWORD` ([Verify and log in](#verify-and-log-in)) and confirm you can `curl` the API `/health` route. If health is fine but login fails, the API pod may not have restarted after a secret change; `oc rollout restart deploy/neio-leasingops-api -n leasingops`.
 
 A document stops partway through the pipeline: check the worker log, `oc logs deploy/neio-leasingops-worker -n leasingops --tail=100`. It prints a heartbeat every few cycles and a timing line per LLM call, so a stall is visible.
 
 The Audit Trail or agent progress looks empty after an upload: confirm the workspace is in production mode under **Administration > Settings**. Demo mode writes synthetic data without running the worker, so it produces no audit events and no live agent progress.
 
-The assistant gives an answer that disagrees with the contract: the default model is Granite 3.3 2B, a small model chosen so the quickstart runs on modest hardware. It can misread dates and figures, for example calling a current lease expired. Treat the assistant as a drafting aid and verify against the extracted terms on the document page. For sharper answers, point LlamaStack at a larger Granite model in [Step 2](#step-2-deploy-the-model-server).
+The assistant gives an answer that disagrees with the contract: the default model is Granite 3.3 2B, a small model chosen so the quickstart runs on modest hardware. It can misread dates and figures, for example calling a current lease expired. Treat the assistant as a drafting aid and verify against the extracted terms on the document page. For sharper answers, point the chart at a larger Granite model via the `llm-service` values.
 
-vLLM pod stuck `Pending`: the GPU node is tainted and the install had no matching toleration. Re-run [Step 2](#step-2-deploy-the-model-server) with the toleration flags.
+vLLM pod stuck `Pending`: the GPU node is tainted and the install had no matching toleration. Re-install with the toleration `--set` flags shown under [Install (one command)](#install-one-command).
 
 ## Where to get help
 

@@ -30,10 +30,17 @@ app:
   # unless your cluster has an RWX storage class.
   replicas: 1
 
+  # Validated application image (proprietary, pulled from ACR via the pull secret).
+  image:
+    repository: rhleasingopsacr.azurecr.io/leasingops-app
+    tag: "20260521.01.0002"
+
   # OpenShift Route configuration
   route:
     enabled: true
-    host: leasingops.apps.cluster.example.com
+    # Empty host -> OpenShift auto-assigns <name>-<namespace>.<apps-domain>, so no
+    # cluster-specific overrides file is needed.
+    host: ""
     path: /
     tls:
       enabled: true
@@ -81,10 +88,16 @@ api:
   # See note on app.replicas. The uploads PVC is RWO.
   replicas: 1
 
+  # Validated API image (proprietary, pulled from ACR via the pull secret).
+  image:
+    repository: rhleasingopsacr.azurecr.io/leasingops-api
+    tag: "20260515.01.0001"
+
   # OpenShift Route configuration
   route:
     enabled: true
-    host: api-leasingops.apps.cluster.example.com
+    # Empty host -> OpenShift auto-assigns the route hostname.
+    host: ""
     path: /
     tls:
       enabled: true
@@ -129,6 +142,11 @@ api:
 # BACKGROUND WORKER - OpenShift Configuration
 # =============================================================================
 worker:
+  # Validated worker image (proprietary, pulled from ACR via the pull secret).
+  image:
+    repository: rhleasingopsacr.azurecr.io/leasingops-worker
+    tag: "20260515.01.0001"
+
   podSecurityContext:
     fsGroup: 1000
 

@@ -28,7 +28,7 @@ CYAN  := \033[36m
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps-update lint infra app deploy destroy status
+.PHONY: help deps-update lint infra app deploy install destroy status
 
 ## help: Show this help message
 help:
@@ -38,6 +38,7 @@ help:
 	@echo "$(CYAN)  make infra$(RESET)   — Install infra chart (PostgreSQL, Redis, MinIO)"
 	@echo "$(CYAN)  make app$(RESET)     — Install app chart (assumes infra already present)"
 	@echo "$(CYAN)  make deploy$(RESET)  — Install infra then app (full stack)"
+	@echo "$(CYAN)  make install$(RESET) — Single-command deploy: model server + app + data services"
 	@echo "$(CYAN)  make destroy$(RESET) — Purge everything (releases, PVCs, namespace)"
 	@echo "$(CYAN)  make lint$(RESET)    — Lint all Helm charts"
 	@echo "$(CYAN)  make status$(RESET)  — Show rollout status"
@@ -97,6 +98,21 @@ app: deps-update
 ## deploy: Full deployment — infra then app
 deploy: infra app
 	@echo "$(GREEN)$(BOLD)Full stack deployed successfully.$(RESET)"
+	@$(MAKE) status
+
+## install: Single-command deploy — model server (vLLM + LlamaStack subcharts) + app + PostgreSQL + Redis
+##   Pass ACR pull credentials: make install NAMESPACE=leasingops ACR_USER=... ACR_PASS=...
+install:
+	@echo "$(BOLD)Deploying NeIO LeasingOps (single command) into namespace: $(NAMESPACE)$(RESET)"
+	helm dependency build $(HELM_APP)
+	helm upgrade --install $(RELEASE_APP) $(HELM_APP) \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--values $(HELM_APP)/values-openshift.yaml \
+		$(if $(ACR_USER),--set imageCredentials.username=$(ACR_USER),) \
+		$(if $(ACR_PASS),--set imageCredentials.password=$(ACR_PASS),) \
+		--timeout 20m
+	@echo "$(GREEN)Deployed. The Granite model downloads on first start — give the vLLM pod a few minutes.$(RESET)"
 	@$(MAKE) status
 
 ## destroy: Purge everything (releases, PVCs, namespace) via scripts/teardown.sh
