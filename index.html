@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NeIO LeasingOps Helm Charts</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; }
+        h1 { color: #333; }
+        pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+        .charts { margin-top: 2rem; }
+        .chart { background: #fff; border: 1px solid #ddd; padding: 1rem; margin: 1rem 0; border-radius: 4px; }
+        .chart h3 { margin-top: 0; color: #0066cc; }
+    </style>
+</head>
+<body>
+    <h1>NeIO LeasingOps Helm Charts</h1>
+    <p>Helm charts for deploying NeIO LeasingOps on OpenShift and Kubernetes.</p>
+
+    <h2>Quick Start</h2>
+    <pre>
+# Add the Helm repository
+helm repo add neio-leasingops https://codvo-ai.github.io/neio-leasingops-quickstart
+helm repo update
+
+# Search available charts
+helm search repo neio-leasingops
+
+# Install a chart
+helm install leasingops neio-leasingops/neio-leasingops
+    </pre>
+
+    <div class="charts">
+        <h2>Available Charts</h2>
+        <div class="chart">
+            <h3>neio-leasingops</h3>
+            <p>Main LeasingOps application chart with AI-powered aircraft leasing operations platform.</p>
+        </div>
+        <div class="chart">
+            <h3>neio-openshift-ai</h3>
+            <p>OpenShift AI (RHOAI) integration for model serving and inference.</p>
+        </div>
+        <div class="chart">
+            <h3>neio-pgvector</h3>
+            <p>PostgreSQL with pgvector extension for vector storage.</p>
+        </div>
+    </div>
+
+    <h2>Documentation</h2>
+    <p>See the <a href="https://github.com/codvo-ai/neio-leasingops-quickstart">GitHub repository</a> for full documentation.</p>
+</body>
+</html>

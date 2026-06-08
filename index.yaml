@@ -1,0 +1,92 @@
+apiVersion: v1
+entries:
+  neio-leasingops:
+  - annotations:
+      artifacthub.io/category: ai-machine-learning
+      artifacthub.io/containsSecurityUpdates: "false"
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/operator: "false"
+      artifacthub.io/prerelease: "false"
+      com.redhat.delivery.backport: "false"
+      com.redhat.delivery.operator.bundle: "true"
+      com.redhat.openshift.versions: v4.12-v4.15
+      openshift.io/provider-display-name: CODVO.AI
+    apiVersion: v2
+    appVersion: 1.0.1
+    created: "2026-06-08T05:10:03.819498929Z"
+    description: NeIO LeasingOps - AI-powered Aircraft Leasing Operations Platform
+    digest: c2b1c2d44e09fe41d185a743ea2fe47c69d734aec1855fa81eedfbf15c3f4a3b
+    home: https://codvo.ai/leasingops
+    icon: https://codvo.ai/assets/leasingops-icon.png
+    keywords:
+    - ai
+    - leasingops
+    - aircraft-leasing
+    - openshift
+    - red-hat
+    - neio
+    - enterprise-ai
+    - llm
+    - rag
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - email: support@codvo.ai
+      name: CODVO.AI
+      url: https://codvo.ai
+    name: neio-leasingops
+    sources:
+    - https://github.com/codvo-ai/neio-leasingops
+    type: application
+    urls:
+    - https://rh-ai-quickstart.github.io/Agentic-Lease-Management-and-Reconciliation-with-Codvo/neio-leasingops-1.0.1.tgz
+    version: 1.0.1
+  neio-openshift-ai:
+  - annotations:
+      category: AI/ML
+      licenses: Apache-2.0
+    apiVersion: v2
+    appVersion: 1.0.1
+    created: "2026-06-08T05:10:03.82034041Z"
+    description: Red Hat OpenShift AI integration for NeIO LeasingOps
+    digest: 47d958d39255fe39470ba14820085aba135ee21366fc36098f48f7dc92ccb234
+    home: https://github.com/codvo/neio-leasingops-quickstart
+    keywords:
+    - openshift-ai
+    - llm
+    - vllm
+    - llm-d
+    - llama-stack
+    - model-serving
+    - neio
+    - leasingops
+    maintainers:
+    - email: support@codvo.ai
+      name: CODVO.AI
+    name: neio-openshift-ai
+    type: application
+    urls:
+    - https://rh-ai-quickstart.github.io/Agentic-Lease-Management-and-Reconciliation-with-Codvo/neio-openshift-ai-1.0.1.tgz
+    version: 1.0.1
+  pgvector:
+  - apiVersion: v2
+    appVersion: 1.0.1
+    created: "2026-06-08T05:10:03.820734661Z"
+    description: PostgreSQL with pgvector extension for vector similarity search
+    digest: 50e9eb1c32313cb1c5fbf34985ccfbe5587eab67b287c2da1f5c2c4400a281d1
+    home: https://github.com/pgvector/pgvector
+    keywords:
+    - postgresql
+    - pgvector
+    - vector-database
+    - embeddings
+    maintainers:
+    - email: support@codvo.ai
+      name: CODVO.AI
+    name: pgvector
+    sources:
+    - https://github.com/pgvector/pgvector
+    type: application
+    urls:
+    - https://rh-ai-quickstart.github.io/Agentic-Lease-Management-and-Reconciliation-with-Codvo/pgvector-1.0.1.tgz
+    version: 1.0.1
+generated: "2026-06-08T05:10:03.817233672Z"
