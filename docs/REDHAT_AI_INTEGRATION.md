@@ -1,6 +1,6 @@
 # Red Hat OpenShift AI Integration
 
-This document describes how NeIO LeasingOps uses Red Hat OpenShift AI, as the quickstart actually deploys it. It is scoped to what ships in this repository, not the broader NeIO platform roadmap.
+This document describes how NeIO LeasingOps uses Red Hat OpenShift AI, as the quickstart actually deploys it. It is scoped to what ships in this repository.
 
 ---
 
@@ -44,7 +44,7 @@ Granite 3.3 2B is the default because it runs on modest hardware. For higher qua
 
 ## Not in the quickstart
 
-To keep expectations honest, the following are part of the broader NeIO platform vision but are **not** deployed or wired up by this quickstart:
+The following are **not** deployed or wired up by this quickstart:
 
 - llm-d multi-model routing and load balancing across several vLLM instances.
 - Multiple concurrently served models (the quickstart serves one).
@@ -52,7 +52,7 @@ To keep expectations honest, the following are part of the broader NeIO platform
 - KServe scale-to-zero and autoscaling of the predictor.
 - A managed RAG vector store; document context is handled within the application.
 
-If you need any of these, they are a custom engagement on top of the quickstart, not a flag you toggle here.
+None of these are configuration flags in this chart; each would have to be added on top of it.
 
 ---
 
