@@ -132,7 +132,11 @@ jobs:
       - name: Template leasingops chart
         run: |
           echo "Templating leasingops chart..."
+          # Dummy pull credentials so the required imageCredentials values render.
+          # These are never used for authentication.
           helm template test-release ./leasingops/helm \
+            --set imageCredentials.username=ci-dummy-user \
+            --set imageCredentials.password=ci-dummy-password \
             --debug \
             --dry-run > /dev/null
 
