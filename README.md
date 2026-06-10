@@ -136,7 +136,15 @@ cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 
 A single `helm install` brings up the whole quickstart: the model server (vLLM + LlamaStack, pulled in as chart dependencies), the application (frontend, API, worker), and its PostgreSQL and Redis. The chart generates its own database, cache, JWT, and demo-login credentials, registers the Granite model with LlamaStack, and lets OpenShift assign the route hostnames — so there is nothing to pre-create.
 
-Fetch the chart dependencies once, then install. Pass the ACR pull credentials Codvo sent you (the application images are proprietary):
+Install with the bundled wrapper, passing the ACR pull credentials Codvo sent you (the application images are proprietary). It runs `helm dependency build` and `helm install --create-namespace` for you:
+
+```bash
+make install NAMESPACE=leasingops ACR_USER='<USERNAME>' ACR_PASS='<PASSWORD>'
+```
+
+Quote the credentials — ACR tokens contain characters the shell would otherwise expand.
+
+For manual Helm installation (no Make), the equivalent is:
 
 ```bash
 helm dependency build ./leasingops/helm
@@ -146,12 +154,6 @@ helm install neio-leasingops ./leasingops/helm \
   --set imageCredentials.username='<USERNAME>' \
   --set imageCredentials.password='<PASSWORD>' \
   -f leasingops/helm/values-openshift.yaml
-```
-
-Quote the credentials — ACR tokens contain characters the shell would otherwise expand. Or use the bundled wrapper, which runs `helm dependency build` for you:
-
-```bash
-make install NAMESPACE=leasingops ACR_USER='<USERNAME>' ACR_PASS='<PASSWORD>'
 ```
 
 That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.

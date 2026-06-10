@@ -59,7 +59,7 @@ dependencies:
     repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
     condition: llm-service.enabled
   - name: llama-stack
-    version: 0.7.3
+    version: 0.8.6
     repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
     condition: llama-stack.enabled
 
