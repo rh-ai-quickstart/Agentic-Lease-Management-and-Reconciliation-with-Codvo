@@ -227,6 +227,9 @@ llm-service:
         limits:
           cpu: "2"
           memory: 8Gi
+      args:
+        - --max-model-len
+        - "32768"
 
 # =============================================================================
 # AI CONFIGURATION - OpenShift AI Integration
