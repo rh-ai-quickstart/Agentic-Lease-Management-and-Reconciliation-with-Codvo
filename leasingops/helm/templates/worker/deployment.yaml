@@ -217,6 +217,8 @@ spec:
               value: {{ .Values.worker.maxRetries | default "3" | quote }}
             - name: WORKER_RETRY_DELAY
               value: {{ .Values.worker.retryDelay | default "60" | quote }}
+            - name: LLM_CALL_TIMEOUT_SECONDS
+              value: {{ .Values.worker.llmCallTimeoutSeconds | default "300" | quote }}
 
             # Feature Flags (same as API)
             {{- range $key, $value := .Values.featureFlags }}

@@ -158,7 +158,7 @@ helm install neio-leasingops ./leasingops/helm \
 
 That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
 
-- **No GPU?** Add `--set llm-service.device=cpu --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu'`. Inference is much slower; see [Appendix A](#appendix-a-cpu-instead-of-gpu).
+- **No GPU?** Add `--set llm-service.device=cpu --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu'`. Inference is much slower; keep `worker.llmCallTimeoutSeconds` at `360` or higher for full end-to-end document processing. See [Appendix A](#appendix-a-cpu-instead-of-gpu).
 - **Tainted GPU nodes?** Add the matching toleration, for example `--set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].key=nvidia.com/gpu' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].operator=Exists' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].effect=NoSchedule'`.
 - **GitOps / bring-your-own secret?** Set `secrets.sealed=true` and ship a `SealedSecret`; see [Appendix C](#appendix-c-gitops).
 
@@ -207,7 +207,7 @@ For a fuller, screen-by-screen guide to the features (document processing, the a
 The left sidebar groups the application into Command, Operations, Processing, and Administration. Here is a tour that exercises the whole pipeline end to end.
 
 1. **Upload a contract.** Go to **Operations > Fleet Portfolio**. Click **Upload**, pick a PDF from `examples/sample-contracts/`, and confirm. The upload card shows the pipeline working: it names each agent as it runs, from Contract Intake through Escalation.
-2. **Watch the agents run in sequence.** Open **Processing > Pipeline** while the document processes. Each of the ten agents runs in order as the worker completes it. On a GPU the full run takes roughly a minute per document.
+2. **Watch the agents run in sequence.** Open **Processing > Pipeline** while the document processes. Each of the ten agents runs in order as the worker completes it. On a GPU the full run takes roughly a minute per document. On CPU-hosted Granite, expect a full lease agreement to take materially longer; our ROSA CPU validation completed successfully but several LLM stages took 1-3 minutes each.
 3. **Read the extracted terms.** When the run finishes, open the document from Fleet Portfolio, or go to **Processing > Term Extraction**. This is where the Term Extractor's output lands: dates, financials, parties, aircraft details, and conditions pulled from the contract.
 4. **Check return readiness.** Go to **Operations > Return Readiness**. The Return Readiness agent's redelivery gap analysis and cost estimates show here.
 5. **See the decision and any escalations.** **Command > Decisions** shows the return/extend/buyout recommendation with its risk rationale. **Command > Escalations** lists anything the pipeline routed to a stakeholder. **Processing > Evidence Packs** assembles the audit-ready bundle for a document.
@@ -220,7 +220,7 @@ The repository ships sample lease documents across ten document types in `exampl
 
 The application runs in one of two processing modes, set per workspace under **Administration > Settings**:
 
-- **Production mode (the default).** Uploads run the real pipeline: Docling extracts the PDF, then the ten agents process it through the background worker. This is what the quickstart's model server is for. Agent progress, audit events, and downstream pages (Decisions, Return Readiness, Evidence Packs) all reflect real results. A document takes roughly a minute per run on a GPU.
+- **Production mode (the default).** Uploads run the real pipeline: Docling extracts the PDF, then the ten agents process it through the background worker. This is what the quickstart's model server is for. Agent progress, audit events, and downstream pages (Decisions, Return Readiness, Evidence Packs) all reflect real results. A document takes roughly a minute per run on a GPU. CPU-backed Granite is supported for cost-sensitive demos, but full processing can take 20-30 minutes depending on document size and node capacity.
 - **Demo mode.** Uploads skip the worker and the model entirely: the API writes synthetic extraction data immediately and the document jumps straight to "extracted". Useful for a fast UI tour when you have no GPU or no worker, but it does not exercise the agents and it does not write audit events, so the Audit Trail and Pipeline pages stay empty. If you switch to demo mode, expect those screens to look inactive; that is the mode, not a bug.
 
 Leave it on production for a real walkthrough. Switch to demo only when you explicitly want the instant, synthetic path.
@@ -298,6 +298,17 @@ API or worker pod in `CrashLoopBackOff`: almost always a missing key in `neio-le
 `helm test` fails at the login step: retrieve `DEMO_PASSWORD` ([Verify and log in](#verify-and-log-in)) and confirm you can `curl` the API `/health` route. If health is fine but login fails, the API pod may not have restarted after a secret change; `oc rollout restart deploy/neio-leasingops-api -n leasingops`.
 
 A document stops partway through the pipeline: check the worker log, `oc logs deploy/neio-leasingops-worker -n leasingops --tail=100`. It prints a heartbeat every few cycles and a timing line per LLM call, so a stall is visible.
+
+CPU-based Granite appears to retry the larger agent stages: check for `llm_call_timeout` in the worker logs. The worker uses `LLM_CALL_TIMEOUT_SECONDS`, exposed by this chart as `worker.llmCallTimeoutSeconds`. For CPU demos use at least `360`; for example:
+
+```bash
+helm upgrade neio-leasingops ./leasingops/helm \
+  -n leasingops \
+  -f leasingops/helm/values-openshift.yaml \
+  --set worker.llmCallTimeoutSeconds=360
+```
+
+Then restart or wait for the worker rollout and re-upload the document.
 
 The Audit Trail or agent progress looks empty after an upload: confirm the workspace is in production mode under **Administration > Settings**. Demo mode writes synthetic data without running the worker, so it produces no audit events and no live agent progress.
 

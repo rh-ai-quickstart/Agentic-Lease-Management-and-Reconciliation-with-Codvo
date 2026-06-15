@@ -82,6 +82,8 @@ Credentials for both come from the application secret (`neio-leasingops-secrets`
 
 `api`, `app`, and `worker` each take `replicas` (or `replicaCount`), `resources.requests` / `resources.limits`, and an `autoscaling` block (`enabled`, `minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`). Defaults are sized for a demo. The worker is single-replica by default; raise `worker.replicas` to process more documents in parallel.
 
+For CPU-backed local LLM inference, keep the worker single-replica unless you have sized the model server for concurrent requests. The worker also exposes `worker.llmCallTimeoutSeconds`, rendered as `LLM_CALL_TIMEOUT_SECONDS`. The base default is `300`; `values-openshift.yaml` sets `360` because CPU-hosted Granite can take 2-3 minutes for the larger extraction, evidence, and decision prompts. GPU-backed vLLM normally completes much faster, but the higher timeout is harmless and avoids unnecessary retries on slower clusters.
+
 ---
 
 ## Secrets

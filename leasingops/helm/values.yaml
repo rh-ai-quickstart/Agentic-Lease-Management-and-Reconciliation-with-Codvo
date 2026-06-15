@@ -369,6 +369,11 @@ api:
 worker:
   enabled: true
 
+  # Per-call LLM timeout for the agent pipeline. GPU-backed vLLM usually
+  # completes well under this, but CPU-backed Granite can need several minutes
+  # for larger extraction/evidence prompts.
+  llmCallTimeoutSeconds: 300
+
   # Container image settings
   image:
     repository: leasingops-worker

@@ -168,6 +168,11 @@ worker:
     repository: rhleasingopsacr.azurecr.io/leasingops-worker
     tag: "20260615.01.0001"
 
+  # CPU-hosted Granite is functional but slow. The validated ROSA CPU E2E run
+  # had several LLM calls in the 100-180s range, so keep enough headroom to
+  # avoid duplicate retries while remaining bounded for failed calls.
+  llmCallTimeoutSeconds: 360
+
   # The validated worker image ships bytecode-only sources, including
   # /app/worker.pyc. The base chart's source-file command is kept for
   # source-built images; OpenShift quickstart uses the packaged bytecode.
