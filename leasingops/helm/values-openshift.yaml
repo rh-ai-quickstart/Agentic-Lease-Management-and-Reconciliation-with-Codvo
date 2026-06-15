@@ -28,6 +28,7 @@ app:
   # The uploads PVC is ReadWriteOnce. A second replica scheduled to a
   # different node sits in ContainerCreating forever. Keep replicas: 1
   # unless your cluster has an RWX storage class.
+  replicaCount: 1
   replicas: 1
 
   # Validated application image (proprietary, pulled from ACR via the pull secret).
@@ -81,6 +82,16 @@ app:
       drop:
         - ALL
 
+  # Keep the ROSA/OpenShift AI quickstart small enough to fit on a
+  # three-node m6i.xlarge demo cluster. Raise these for production.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 # =============================================================================
 # API SERVER - OpenShift Configuration
 # =============================================================================
@@ -125,6 +136,16 @@ api:
       drop:
         - ALL
 
+  # Conservative demo requests. OpenShift AI operators consume most
+  # schedulable CPU on small ROSA clusters even when actual CPU is idle.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 512Mi
+    limits:
+      cpu: 750m
+      memory: 1Gi
+
   # Environment variables for OpenShift
   env:
     # Inherit from base values.yaml
@@ -147,6 +168,13 @@ worker:
     repository: rhleasingopsacr.azurecr.io/leasingops-worker
     tag: "20260615.01.0001"
 
+  # The validated worker image ships bytecode-only sources, including
+  # /app/worker.pyc. The base chart's source-file command is kept for
+  # source-built images; OpenShift quickstart uses the packaged bytecode.
+  command:
+    - python
+    - /app/worker.pyc
+
   podSecurityContext:
     fsGroup: 1000
 
@@ -156,6 +184,49 @@ worker:
     capabilities:
       drop:
         - ALL
+
+  # The API and worker both mount leasingops-uploads, which is an AWS EBS
+  # ReadWriteOnce PVC in ROSA. Co-locate the worker with the API so the
+  # single volume can attach successfully.
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - api
+          topologyKey: kubernetes.io/hostname
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+# =============================================================================
+# MODEL SERVER - cost-sensitive OpenShift/ROSA demo profile
+# =============================================================================
+llm-service:
+  enabled: true
+  # Prefer CPU for the portable quickstart. It is slower than GPU but avoids
+  # requiring a GPU machine pool for meeting demos and short-lived clusters.
+  device: cpu
+  models:
+    granite-3-3-2b-instruct:
+      id: ibm-granite/granite-3.3-2b-instruct
+      enabled: true
+      device: cpu
+      resources:
+        requests:
+          cpu: 50m
+          memory: 4Gi
+        limits:
+          cpu: "2"
+          memory: 8Gi
 
 # =============================================================================
 # AI CONFIGURATION - OpenShift AI Integration
