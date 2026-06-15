@@ -222,14 +222,14 @@ llm-service:
       device: cpu
       resources:
         requests:
-          cpu: 50m
-          memory: 4Gi
-        limits:
           cpu: "2"
           memory: 8Gi
+        limits:
+          cpu: "4"
+          memory: 16Gi
       args:
         - --max-model-len
-        - "32768"
+        - "8192"
 
 # =============================================================================
 # AI CONFIGURATION - OpenShift AI Integration
