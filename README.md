@@ -1,6 +1,6 @@
-# Aircraft lease management and reconciliation with agents
+# Aircraft lease management and reconciliation with AI agents on Red Hat OpenShift AI
 
-Process aircraft lease contracts end to end with a ten-agent pipeline on Red Hat OpenShift AI. Upload a PDF lease and the platform extracts terms, maps obligations, calculates reserves, detects variance, assesses return readiness, and produces a return/extend/buyout recommendation.
+Process aircraft lease documents on Red Hat OpenShift AI with a ten-agent workflow that extracts terms, maps obligations, calculates reserves, detects variance, assesses return readiness, and drafts return, extension, or buyout recommendations with traceable evidence.
 
 ## Table of contents
 
@@ -317,8 +317,8 @@ Helm chart and deployment configuration: Apache 2.0. Application images are prop
 
 ## Tags
 
-- **Title:** Aircraft lease management and reconciliation with agents
-- **Description:** Process aircraft lease contracts end to end with a ten-agent pipeline on Red Hat OpenShift AI: extract terms, map obligations, calculate reserves, detect variance, assess return readiness, and recommend return/extend/buyout.
+- **Title:** Aircraft lease management and reconciliation with AI agents on Red Hat OpenShift AI
+- **Description:** Process aircraft lease documents on Red Hat OpenShift AI with a ten-agent workflow that extracts terms, maps obligations, calculates reserves, detects variance, assesses return readiness, and drafts return, extension, or buyout recommendations with traceable evidence.
 - **Industry:** Adopt and scale AI
 - **Product:** OpenShift AI
 - **Use case:** Agentic document processing and reconciliation

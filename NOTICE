@@ -1,0 +1,11 @@
+NeIO LeasingOps Quickstart
+Copyright 2026 CODVO.AI
+
+The Apache 2.0 license applies to the deployment configurations, Helm charts,
+scripts, examples, and documentation in this repository.
+
+The NeIO LeasingOps application images, application source code, AI agent
+implementations, and NeIO platform core components are proprietary software
+owned by CODVO.AI and are not covered by this repository license. Use of the
+application images requires a valid commercial license or registry pull token
+from CODVO.AI.

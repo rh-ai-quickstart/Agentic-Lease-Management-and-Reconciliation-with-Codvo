@@ -2,7 +2,7 @@ apiVersion: v2
 name: neio-leasingops
 version: 1.1.0
 appVersion: "1.0.0"
-description: NeIO LeasingOps - AI-powered Aircraft Leasing Operations Platform
+description: Aircraft lease management and reconciliation with AI agents on Red Hat OpenShift AI
 type: application
 
 keywords:
@@ -18,7 +18,7 @@ keywords:
 
 home: https://codvo.ai/leasingops
 sources:
-  - https://github.com/codvo-ai/neio-leasingops
+  - https://github.com/rh-ai-quickstart/Agentic-Lease-Management-and-Reconciliation-with-Codvo
 
 maintainers:
   - name: CODVO.AI
@@ -34,6 +34,7 @@ annotations:
 
   # Artifact Hub annotations
   artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "false"
   artifacthub.io/prerelease: "false"
   artifacthub.io/containsSecurityUpdates: "false"
