@@ -29,9 +29,9 @@ helm install neio-leasingops ./leasingops/helm \
 | Value | Purpose | Example |
 |-------|---------|---------|
 | `global.imagePullSecrets` | List of pull secrets for the private image registry | `[acr-pull-secret]` |
-| `api.image.repository` / `api.image.tag` | API image | `rhleasingopsacr.azurecr.io/leasingops-api` / `20260515.01.0001` |
-| `app.image.repository` / `app.image.tag` | Frontend image | `.../leasingops-app` / `20260521.01.0002` |
-| `worker.image.repository` / `worker.image.tag` | Worker image | `.../leasingops-worker` / `20260515.01.0001` |
+| `api.image.repository` / `api.image.tag` | API image | `rhleasingopsacr.azurecr.io/leasingops-api` / `20260615.01.0001` |
+| `app.image.repository` / `app.image.tag` | Frontend image | `.../leasingops-app` / `20260615.01.0001` |
+| `worker.image.repository` / `worker.image.tag` | Worker image | `.../leasingops-worker` / `20260615.01.0001` |
 | `api.route.host` | API route hostname | `api-leasingops.<cluster-apps-domain>` |
 | `app.route.host` | Frontend route hostname | `leasingops.<cluster-apps-domain>` |
 | `app.env.apiUrl` | Backend URL the frontend proxy targets. Defaults to the in-cluster API Service, so you rarely set it | `http://neio-leasingops-api:8001` |

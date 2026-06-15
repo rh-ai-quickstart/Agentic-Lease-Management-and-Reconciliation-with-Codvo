@@ -45,15 +45,15 @@ spec:
         - name: api.image.repository
           value: rhleasingopsacr.azurecr.io/leasingops-api
         - name: api.image.tag
-          value: "20260515.01.0001"
+          value: "20260615.01.0001"
         - name: app.image.repository
           value: rhleasingopsacr.azurecr.io/leasingops-app
         - name: app.image.tag
-          value: "20260521.01.0002"
+          value: "20260615.01.0001"
         - name: worker.image.repository
           value: rhleasingopsacr.azurecr.io/leasingops-worker
         - name: worker.image.tag
-          value: "20260515.01.0001"
+          value: "20260615.01.0001"
         - name: llamastack.url
           value: http://llamastack:8321
         - name: llamastack.model

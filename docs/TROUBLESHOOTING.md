@@ -306,7 +306,7 @@ oc get serviceaccount default -n leasingops -o yaml | grep imagePullSecrets
 3. **Invalid Credentials**
    ```bash
    # Test pull secret manually
-   oc run test-pull --image=rhleasingopsacr.azurecr.io/leasingops-api:20260515.01.0001 \
+   oc run test-pull --image=rhleasingopsacr.azurecr.io/leasingops-api:20260615.01.0001 \
      --restart=Never --rm -it \
      --overrides='{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}' \
      -n leasingops -- echo "Pull successful"

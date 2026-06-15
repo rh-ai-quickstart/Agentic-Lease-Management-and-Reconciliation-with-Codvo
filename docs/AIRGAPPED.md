@@ -91,9 +91,9 @@ Create a file listing all required images:
 
 ```bash
 # images.txt
-rhleasingopsacr.azurecr.io/leasingops-app:1.0.0
-rhleasingopsacr.azurecr.io/leasingops-api:1.0.0
-rhleasingopsacr.azurecr.io/leasingops-worker:1.0.0
+rhleasingopsacr.azurecr.io/leasingops-app:20260615.01.0001
+rhleasingopsacr.azurecr.io/leasingops-api:20260615.01.0001
+rhleasingopsacr.azurecr.io/leasingops-worker:20260615.01.0001
 docker.io/bitnami/postgresql:16
 docker.io/bitnami/redis:7.2
 docker.io/qdrant/qdrant:v1.7.4
@@ -144,9 +144,9 @@ storageConfig:
 mirror:
   additionalImages:
     # Use the image tags from the README install command.
-    - name: rhleasingopsacr.azurecr.io/leasingops-app:20260521.01.0002
-    - name: rhleasingopsacr.azurecr.io/leasingops-api:20260515.01.0001
-    - name: rhleasingopsacr.azurecr.io/leasingops-worker:20260515.01.0001
+    - name: rhleasingopsacr.azurecr.io/leasingops-app:20260615.01.0001
+    - name: rhleasingopsacr.azurecr.io/leasingops-api:20260615.01.0001
+    - name: rhleasingopsacr.azurecr.io/leasingops-worker:20260615.01.0001
     - name: docker.io/library/postgres:15-alpine
     - name: docker.io/library/redis:7-alpine
     # Plus the vLLM and LlamaStack images pulled by the Red Hat AI
