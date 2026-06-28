@@ -53,7 +53,7 @@ spec:
         - name: APP_URL
           value: {{ printf "https://%s" (((.Values.app).route).host) | quote }}
         - name: DEMO_USERNAME
-          value: {{ (.Values.tests).demoUsername | default "demo@leasingops.ai" | quote }}
+          value: {{ (.Values.tests).demoUsername | default "demo@neio.ai" | quote }}
         - name: DEMO_PASSWORD
           valueFrom:
             secretKeyRef:

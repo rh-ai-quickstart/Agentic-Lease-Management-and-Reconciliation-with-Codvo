@@ -317,6 +317,7 @@ api:
   env:
     # Application settings
     ENVIRONMENT: production
+    DEMO_EMAIL: demo@neio.ai
     LOG_LEVEL: info
     DEBUG: "false"
 

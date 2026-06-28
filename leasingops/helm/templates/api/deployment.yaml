@@ -61,6 +61,8 @@ spec:
                   key: UIP_SOLUTIONS
             - name: ENVIRONMENT
               value: {{ .Values.global.environment | default "production" | quote }}
+            - name: DEMO_EMAIL
+              value: {{ ((.Values.api).env).DEMO_EMAIL | default "demo@neio.ai" | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.api.logLevel | default "INFO" | quote }}
 

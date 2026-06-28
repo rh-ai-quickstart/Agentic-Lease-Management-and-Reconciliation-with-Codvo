@@ -198,7 +198,7 @@ oc get secret neio-leasingops-secrets -n leasingops \
   -o jsonpath='{.data.DEMO_PASSWORD}' | base64 -d
 ```
 
-Open the frontend URL and log in as `demo@leasingops.ai` with that password.
+Open the frontend URL and log in as `demo@neio.ai` with that password.
 
 ### Walk through the application
 

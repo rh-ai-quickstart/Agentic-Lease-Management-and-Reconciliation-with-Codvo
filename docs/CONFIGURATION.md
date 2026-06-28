@@ -95,7 +95,7 @@ The application reads its credentials from the `neio-leasingops-secrets` Secret.
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | Database credentials (used by the in-cluster Postgres and the app) |
 | `REDIS_PASSWORD` | Redis password |
 | `JWT_SECRET_KEY` | Signs application login tokens |
-| `DEMO_PASSWORD` | Password for the bundled `demo@leasingops.ai` login |
+| `DEMO_PASSWORD` | Password for the bundled `demo@neio.ai` login |
 | `ANTHROPIC_API_KEY` | Optional Claude fallback; may be empty |
 
 For GitOps, the chart can render the Secret from `secrets.data.*` (or `secrets.sealedData.*` for Sealed Secrets) instead of creating it by hand. See Appendix C of the README.
