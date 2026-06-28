@@ -10,39 +10,9 @@ NeIO LeasingOps is a document-processing pipeline that drives aircraft lease con
 
 All components run in a single OpenShift namespace (`leasingops`).
 
-```mermaid
-graph TB
-    subgraph OCP["OpenShift Cluster — Namespace: leasingops"]
-        APP[neio-leasingops-app<br/>Next.js 15 · Port 3000]
-        API[neio-leasingops-api<br/>FastAPI · Port 8001]
-        WORKER[neio-leasingops-worker<br/>Python · Redis BRPOP queues]
-        PG[(neio-leasingops-postgresql<br/>PostgreSQL 15 · Port 5432)]
-        REDIS[(neio-leasingops-redis<br/>Redis 7 · Port 6379)]
-        PVC[(leasingops-uploads PVC<br/>API + Worker shared)]
+![NeIO LeasingOps architecture](images/architecture.png)
 
-        subgraph RHAI["Model server (Red Hat AI Architecture charts)"]
-            VLLM[granite-3-3-2b-instruct-vllm<br/>vLLM · Port 80<br/>ibm-granite/granite-3.3-2b-instruct]
-            LS[llamastack<br/>Port 8321]
-        end
-    end
-
-    DOCLING[docling<br/>optional, not in the base chart<br/>worker falls back to PyMuPDF]
-
-    APP -->|/api proxy, same origin| API
-    API -->|upload/read| PVC
-    WORKER -->|read| PVC
-    API -->|job enqueue| REDIS
-    WORKER -->|BRPOP job queue| REDIS
-    API --> PG
-    WORKER --> PG
-    WORKER -.->|parse PDF if present| DOCLING
-    WORKER -->|LLM calls POST /v1/chat/completions| LS
-    LS --> VLLM
-
-    style RHAI fill:#e0e7ff,stroke:#4f46e5
-    style OCP fill:#f9fafb,stroke:#374151
-    style DOCLING stroke-dasharray: 5 5
-```
+*Diagram source: [`architecture.mmd`](./architecture.mmd).*
 
 PostgreSQL and Redis are deployed by the LeasingOps chart itself (single replica each, suitable for a quickstart). Point the chart at an external database or cache through `database.deployInCluster=false` / `cache.deployInCluster=false`. Docling is the preferred PDF extractor, but the base chart does not deploy it; if no Docling service is present at `http://docling:5001`, the worker falls back to PyMuPDF text extraction.
 

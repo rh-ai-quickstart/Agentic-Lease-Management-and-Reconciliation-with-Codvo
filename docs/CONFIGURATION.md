@@ -107,4 +107,3 @@ For GitOps, the chart can render the Secret from `secrets.data.*` (or `secrets.s
 - [README](../README.md) — install and walkthrough
 - [Architecture](./ARCHITECTURE.md) — system design
 - [Troubleshooting](./TROUBLESHOOTING.md) — common issues
-- [Upgrade Guide](./UPGRADE.md) — upgrading a release

@@ -66,6 +66,21 @@ spec:
             - name: LOG_LEVEL
               value: {{ .Values.api.logLevel | default "INFO" | quote }}
 
+            # LlamaStack inference (RAG assistant answer generation) — lets the
+            # API reach the in-cluster Red Hat model server (Granite via vLLM).
+            - name: LLAMASTACK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: LLAMASTACK_URL
+                  optional: true
+            - name: LLAMASTACK_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "neio-leasingops.fullname" . }}-api-config
+                  key: LLAMASTACK_MODEL
+                  optional: true
+
             # Database Configuration
             - name: POSTGRES_HOST
               valueFrom:

@@ -35,7 +35,5 @@ tmp/
 # walkthrough belongs on the operator's laptop, not in the repo.
 docs/DEMO_RUNBOOK.html
 docs/runbook-artifacts/
-scripts/leasingops-data-services.yaml
-scripts/leasingops-overrides.example.yaml
 docs/CODEBASE_AUDIT.html
 docs/AIRGAPPED_ARCHITECTURE.html
