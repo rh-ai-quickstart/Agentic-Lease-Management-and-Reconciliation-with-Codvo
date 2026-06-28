@@ -7,7 +7,7 @@ Thanks for your interest in the NeIO LeasingOps quickstart. This repository is t
 - `leasingops/helm/` — the application Helm chart (frontend, API, worker, PostgreSQL, Redis).
 - `helm/infra/`, `dependencies/`, `openshift-ai/` — supporting charts and values.
 - `examples/` — sample lease contracts and example manifests (ArgoCD, SealedSecret).
-- `scripts/` — `teardown.sh` and deployment helpers.
+- `scripts/` — `teardown.sh`, the cluster teardown helper.
 - `docs/` — architecture, configuration, getting started, troubleshooting, and the OpenShift AI integration notes.
 
 ## Reporting issues
