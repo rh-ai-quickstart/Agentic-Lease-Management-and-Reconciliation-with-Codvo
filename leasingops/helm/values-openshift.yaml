@@ -34,7 +34,7 @@ app:
   # Validated application image (proprietary, pulled from ACR via the pull secret).
   image:
     repository: rhleasingopsacr.azurecr.io/leasingops-app
-    tag: "20260615.01.0001"
+    tag: "20260629.01.0001"
 
   # OpenShift Route configuration
   route:
@@ -102,7 +102,7 @@ api:
   # Validated API image (proprietary, pulled from ACR via the pull secret).
   image:
     repository: rhleasingopsacr.azurecr.io/leasingops-api
-    tag: "20260615.01.0001"
+    tag: "20260629.01.0001"
 
   # OpenShift Route configuration
   route:
@@ -166,7 +166,7 @@ worker:
   # Validated worker image (proprietary, pulled from ACR via the pull secret).
   image:
     repository: rhleasingopsacr.azurecr.io/leasingops-worker
-    tag: "20260615.01.0001"
+    tag: "20260629.01.0001"
 
   # CPU-hosted Granite is functional but slow. The validated ROSA CPU E2E run
   # had several LLM calls in the 100-180s range, so keep enough headroom to
