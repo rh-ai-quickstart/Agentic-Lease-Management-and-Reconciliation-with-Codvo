@@ -82,7 +82,7 @@ infra: deps-update
 ## app: Install/upgrade the application chart (assumes infra is already present)
 app: deps-update
 	@echo "$(BOLD)Deploying application: $(RELEASE_APP)$(RESET)"
-	@LLM_OVERRIDES=""; \
+	@LLM_OVERRIDES="values-leasingops-override.yaml"; \
 	if [ -n "$(LLM_URL)" ];       then LLM_OVERRIDES="$$LLM_OVERRIDES --set llm.url=$(LLM_URL)"; fi; \
 	if [ -n "$(LLM_API_TOKEN)" ]; then LLM_OVERRIDES="$$LLM_OVERRIDES --set llm.apiToken=$(LLM_API_TOKEN)"; fi; \
 	if [ -n "$(LLM_MODEL)" ];     then LLM_OVERRIDES="$$LLM_OVERRIDES --set llm.model=$(LLM_MODEL)"; fi; \

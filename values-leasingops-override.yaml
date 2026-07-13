@@ -1,0 +1,32 @@
+# LeasingOps - Configuration Override
+# This file contains overrides for the LeasingOps Helm deployment
+#
+# Use this file when upgrading the Helm release:
+#   helm upgrade neio-leasingops ./leasingops/helm \
+#     -n leasingops \
+#     -f <original-values.yaml> \
+#     -f values-leasingops-override.yaml
+
+# =============================================================================
+# MODEL SERVER - cost-sensitive OpenShift/ROSA demo profile
+# =============================================================================
+llm-service:
+  enabled: true
+  # Prefer CPU for the portable quickstart. It is slower than GPU but avoids
+  # requiring a GPU machine pool for meeting demos and short-lived clusters.
+  device: cpu
+  models:
+    granite-3-3-2b-instruct:
+      id: ibm-granite/granite-3.3-2b-instruct
+      enabled: true
+      device: cpu
+      resources:
+        requests:
+          cpu: "4"
+          memory: 24Gi
+        limits:
+          cpu: "8"
+          memory: 48Gi
+      args:
+        - --max-model-len
+        - "8192"
