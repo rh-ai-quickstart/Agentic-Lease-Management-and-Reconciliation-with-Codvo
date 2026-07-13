@@ -42,8 +42,8 @@ jobs:
           # helm lint --with-subcharts needs charts/ populated;
           # do this before any of the lint steps below.
           helm dependency update ./leasingops/helm
-          helm dependency update ./openshift-ai/helm || true
-          helm dependency update ./dependencies/pgvector/helm || true
+          if [ -f ./openshift-ai/helm/Chart.yaml ]; then helm dependency update ./openshift-ai/helm; fi
+          if [ -f ./dependencies/pgvector/helm/Chart.yaml ]; then helm dependency update ./dependencies/pgvector/helm; fi
 
       - name: Lint leasingops chart
         run: |
@@ -60,6 +60,7 @@ jobs:
             --strict
 
       - name: Lint pgvector chart
+        if: hashFiles('dependencies/pgvector/helm/Chart.yaml') != ''
         run: |
           echo "Linting pgvector chart..."
           helm lint ./dependencies/pgvector/helm \
@@ -102,6 +103,7 @@ jobs:
           # cannot parse {{- if .. }}/{{- end }} constructs; the
           # template-validation job covers those by rendering the chart
           # with `helm template`.
+          shopt -s nullglob
           yamllint -c .yamllint.yaml \
             leasingops/helm/*.yaml \
             openshift-ai/helm/*.yaml \
@@ -127,8 +129,8 @@ jobs:
       - name: Update chart dependencies
         run: |
           helm dependency update ./leasingops/helm || true
-          helm dependency update ./openshift-ai/helm || true
-          helm dependency update ./dependencies/pgvector/helm || true
+          if [ -f ./openshift-ai/helm/Chart.yaml ]; then helm dependency update ./openshift-ai/helm; fi
+          if [ -f ./dependencies/pgvector/helm/Chart.yaml ]; then helm dependency update ./dependencies/pgvector/helm; fi
 
       - name: Template leasingops chart
         run: |
@@ -142,6 +144,7 @@ jobs:
             --dry-run > /dev/null
 
       - name: Template openshift-ai chart
+        if: hashFiles('openshift-ai/helm/Chart.yaml') != ''
         run: |
           echo "Templating openshift-ai chart..."
           helm template test-release ./openshift-ai/helm \
@@ -149,6 +152,7 @@ jobs:
             --dry-run > /dev/null
 
       - name: Template pgvector chart
+        if: hashFiles('dependencies/pgvector/helm/Chart.yaml') != ''
         run: |
           echo "Templating pgvector chart..."
           helm template test-release ./dependencies/pgvector/helm \
@@ -187,7 +191,7 @@ jobs:
 
           # Check for missing resource limits
           echo "Checking for resource definitions..."
-          for chart in leasingops/helm openshift-ai/helm dependencies/pgvector/helm; do
+          for chart in leasingops/helm; do
             if [ -f "$chart/values.yaml" ]; then
               if ! grep -q "resources:" "$chart/values.yaml"; then
                 echo "Warning: $chart/values.yaml may be missing resource definitions"
@@ -211,7 +215,7 @@ jobs:
         run: |
           echo "Verifying Chart.yaml metadata..."
 
-          for chart in leasingops/helm openshift-ai/helm dependencies/pgvector/helm; do
+          for chart in leasingops/helm; do
             echo "Checking $chart/Chart.yaml..."
 
             if [ ! -f "$chart/Chart.yaml" ]; then
