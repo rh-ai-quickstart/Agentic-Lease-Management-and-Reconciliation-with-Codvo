@@ -424,7 +424,8 @@ uploads:
   # Name of the PVC to use (created separately or by this chart)
   pvcName: "leasingops-uploads"
   # Storage class — use gp3-csi on OpenShift/AWS, standard on vanilla K8s
-  storageClass: "gp3-csi"
+  # storageClass: "gp3-csi"
+  storageClass: ""
   size: "5Gi"
 
 # =============================================================================
