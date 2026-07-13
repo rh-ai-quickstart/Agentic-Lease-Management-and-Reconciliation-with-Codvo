@@ -267,9 +267,8 @@ helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops --create-namespace \
   --set imageCredentials.username='<USERNAME>' \
   --set imageCredentials.password='<PASSWORD>' \
-  --set llm-service.device=cpu \
-  --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu' \
-  -f leasingops/helm/values-openshift.yaml
+  -f leasingops/helm/values-openshift.yaml \
+  -f values-leasingops-override.yaml
 ```
 
 Everything else in the quickstart is identical.
