@@ -157,11 +157,12 @@ helm install neio-leasingops ./leasingops/helm \
 
 That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
 
-- **No GPU?** 
+- **CPU instead of GPU when no GPU is available** 
 
 If you have no GPU node, serve Granite on CPU by adding two flags to the install. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
 
-```bash helm install neio-leasingops ./leasingops/helm \ 
+```bash
+helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops --create-namespace \
   --set imageCredentials.username='<USERNAME>' \
   --set imageCredentials.password='<PASSWORD>' \
