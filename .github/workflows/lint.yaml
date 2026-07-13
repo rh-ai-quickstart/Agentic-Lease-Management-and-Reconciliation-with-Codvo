@@ -53,6 +53,7 @@ jobs:
             --with-subcharts
 
       - name: Lint openshift-ai chart
+        if: hashFiles('openshift-ai/helm/Chart.yaml') != ''
         run: |
           echo "Linting openshift-ai chart..."
           helm lint ./openshift-ai/helm \
