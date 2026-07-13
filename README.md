@@ -25,9 +25,8 @@ Process aircraft lease documents on Red Hat OpenShift AI with a ten-agent workfl
   - [What you've accomplished](#what-youve-accomplished)
   - [Delete](#delete)
 - [Appendices](#appendices)
-  - [Appendix A: CPU instead of GPU](#appendix-a-cpu-instead-of-gpu)
-  - [Appendix B: external PostgreSQL or Redis](#appendix-b-external-postgresql-or-redis)
-  - [Appendix C: GitOps](#appendix-c-gitops)
+  - [Appendix A: external PostgreSQL or Redis](#appendix-b-external-postgresql-or-redis)
+  - [Appendix B: GitOps](#appendix-c-gitops)
 - [Troubleshooting](#troubleshooting)
 - [Where to get help](#where-to-get-help)
 - [License](#license)
@@ -98,7 +97,7 @@ The browser talks only to the frontend. The frontend proxies API calls to the ba
 
 The following are the resources to add on top of a base OpenShift cluster:
 
-- Three worker nodes with 8 CPU / 32 GB each, one of them a GPU node for Granite inference. CPU-only inference is possible but slow; see [Appendix A](#appendix-a-cpu-instead-of-gpu).
+- Three worker nodes with 8 CPU / 32 GB each, one of them a GPU node for Granite inference. CPU-only inference is possible but slow; 
 - Storage for the model and the uploads PVC (the chart requests a 5Gi PVC; the model server downloads the model on first start).
 
 ### Minimum software requirements
@@ -158,9 +157,22 @@ helm install neio-leasingops ./leasingops/helm \
 
 That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
 
-- **No GPU?** Add `--set llm-service.device=cpu --set 'llm-service.models.granite-3-3-2b-instruct.device=cpu'`. Inference is much slower; keep `worker.llmCallTimeoutSeconds` at `360` or higher for full end-to-end document processing. See [Appendix A](#appendix-a-cpu-instead-of-gpu).
+- **No GPU?** 
+
+If you have no GPU node, serve Granite on CPU by adding two flags to the install. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
+
+```bash helm install neio-leasingops ./leasingops/helm \ 
+  --namespace leasingops --create-namespace \
+  --set imageCredentials.username='<USERNAME>' \
+  --set imageCredentials.password='<PASSWORD>' \
+  -f leasingops/helm/values-openshift.yaml \
+  -f values-leasingops-override.yaml
+``` 
+  
+Everything else in the quickstart is identical.
+
 - **Tainted GPU nodes?** Add the matching toleration, for example `--set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].key=nvidia.com/gpu' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].operator=Exists' --set 'llm-service.models.granite-3-3-2b-instruct.tolerations[0].effect=NoSchedule'`.
-- **GitOps / bring-your-own secret?** Set `secrets.sealed=true` and ship a `SealedSecret`; see [Appendix C](#appendix-c-gitops).
+- **GitOps / bring-your-own secret?** Set `secrets.sealed=true` and ship a `SealedSecret`; see [Appendix B](#appendix-c-gitops).
 
 The image tags are pinned to the validated build in `values-openshift.yaml`. Newer tags may exist; ask Codvo before changing them.
 
@@ -242,7 +254,7 @@ Documents flow through these in order:
 
 ### What you've accomplished
 
-You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model (the `llm-service` values), use external data services ([Appendix B](#appendix-b-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix C](#appendix-c-gitops)).
+You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model (the `llm-service` values), use external data services ([Appendix A](#appendix-b-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix B](#appendix-c-gitops)).
 
 ### Delete
 
@@ -258,22 +270,7 @@ It uninstalls every Helm release in the namespace (the app, plus `llamastack` an
 
 ## Appendices
 
-### Appendix A: CPU instead of GPU
-
-If you have no GPU node, serve Granite on CPU by adding two flags to the install. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
-
-```bash
-helm install neio-leasingops ./leasingops/helm \
-  --namespace leasingops --create-namespace \
-  --set imageCredentials.username='<USERNAME>' \
-  --set imageCredentials.password='<PASSWORD>' \
-  -f leasingops/helm/values-openshift.yaml \
-  -f values-leasingops-override.yaml
-```
-
-Everything else in the quickstart is identical.
-
-### Appendix B: external PostgreSQL or Redis
+### Appendix A: external PostgreSQL or Redis
 
 The chart deploys its own single-replica PostgreSQL and Redis by default, which suits a quickstart. For a managed database or an existing Redis, disable the in-cluster ones and point the chart at yours:
 
@@ -286,7 +283,7 @@ The chart deploys its own single-replica PostgreSQL and Redis by default, which 
 
 The credentials still come from `neio-leasingops-secrets`. For an external database, create the `leasingops` database and user beforehand.
 
-### Appendix C: GitOps
+### Appendix B: GitOps
 
 The chart is GitOps-ready: the ServiceAccount, SCC binding, and model registration are all chart resources, so a single ArgoCD `Application` drives the install. `examples/argocd-application.yaml` is a working manifest. For secrets, ship `neio-leasingops-secrets` as a Bitnami `SealedSecret` (encrypt with `kubeseal`, commit the result); `examples/sealed-secret.example.yaml` shows the shape.
 
