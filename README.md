@@ -167,7 +167,7 @@ helm install neio-leasingops ./leasingops/helm \
   --set imageCredentials.username='<USERNAME>' \
   --set imageCredentials.password='<PASSWORD>' \
   -f leasingops/helm/values-openshift.yaml \
-  -f values-leasingops-override.yaml
+  -f leasingops/helm/values-leasingops-override.yaml
 ``` 
   
 Everything else in the quickstart is identical.
