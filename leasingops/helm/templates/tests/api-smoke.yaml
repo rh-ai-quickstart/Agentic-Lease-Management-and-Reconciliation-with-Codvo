@@ -123,19 +123,77 @@ spec:
           auth_h = {"Authorization": f"Bearer {tok}"}
           print(f"      -> got bearer token ({len(tok)} chars)")
 
-          # 3. Upload a tiny synthetic "document" (smoke only; the bundled
-          #    PDFs are too large to ship in the test pod image).
+          # 3. Upload a full sample lease agreement. This doubles as the
+          #    quickstart's seed data, so it carries every term the 11-stage
+          #    pipeline extracts. Key terms are front-loaded because term
+          #    extraction truncates the document to its first 6000 characters.
+          #    Fictional sample data. Plain text (not PDF) so the chart stays
+          #    self-contained and air-gap safe with no binary payload.
           payload_text = (
-              "LEASE AGREEMENT\nAircraft: N12345 (Boeing 737-800)\n"
-              "Lessor: AeroCap Trust\nLessee: Codvo Test Airlines\n"
-              "Term: 60 months\nMonthly Rent: $325,000\n"
+              "AIRCRAFT OPERATING LEASE AGREEMENT\n"
+              "Reference: LA-N67890-7203\n"
+              "Dated: 15 January 2024\n\n"
+              "PARTIES\n"
+              "Lessor: Global Wing Finance BV, Schiphol Boulevard 127, 1118 BG Amsterdam, Netherlands\n"
+              "Lessee: Coastal Charter Services Ltd., 4400 Aviation Way, Miami, FL 33122, United States of America\n"
+              "Operator: Coastal Charter Services Ltd.\n\n"
+              "1. AIRCRAFT\n"
+              "Manufacturer: Airbus\n"
+              "Type/Model: A319-100\n"
+              "Manufacturer Serial Number (MSN): 7203\n"
+              "Registration Mark: N67890\n"
+              "Year of Manufacture: 2015\n"
+              "Engines: two (2) CFM International CFM56-5B5/P\n"
+              "  Engine position 1, ESN 697412\n"
+              "  Engine position 2, ESN 697418\n"
+              "APU: Honeywell 131-9A, Serial Number APU-55231\n\n"
+              "2. TERM\n"
+              "Lease Type: Operating Lease\n"
+              "Commencement Date: 2024-02-01\n"
+              "Expiration Date: 2029-01-31\n"
+              "Scheduled Redelivery Date: 2029-01-31\n"
+              "Lease Term: sixty (60) months\n\n"
+              "3. RENT AND FINANCIAL TERMS\n"
+              "Monthly Base Rent: USD 295,000 payable in advance on the first day of each month\n"
+              "Rent Currency: USD\n"
+              "Security Deposit: USD 590,000\n"
+              "Letter of Credit Amount: USD 295,000\n\n"
+              "4. MAINTENANCE RESERVES\n"
+              "Airframe Heavy Maintenance Reserve: USD 165.00 per Flight Hour\n"
+              "Engine Performance Restoration Reserve: USD 210.00 per Flight Hour per engine\n"
+              "Engine LLP Reserve: USD 145.00 per Flight Cycle per engine\n"
+              "Landing Gear Overhaul Reserve: USD 22.00 per Flight Hour\n"
+              "APU Reserve: USD 18.00 per APU Hour\n"
+              "Reserves are payable monthly in arrears against certified utilization reports.\n\n"
+              "5. UTILIZATION LIMITS\n"
+              "Maximum Flight Hours per Year: 3,000\n"
+              "Maximum Flight Cycles per Year: 1,800\n"
+              "Minimum average Flight Hour to Flight Cycle ratio: 1.5 to 1\n"
+              "Utilization reports are due within ten (10) days of each month end.\n\n"
+              "6. RETURN CONDITIONS (SCHEDULE 5 - PHYSICAL REDELIVERY STANDARDS)\n"
+              "6.1 The Aircraft shall be redelivered at Dublin (EIDW) in airworthy condition.\n"
+              "6.2 Airframe: fresh from a C-Check performed within 30 days of redelivery.\n"
+              "6.3 Engines: not less than 3,000 Flight Hours remaining to first limiter; EGT margin not less than 15 degrees C.\n"
+              "6.4 Landing Gear: not less than 24 months remaining to next overhaul.\n"
+              "6.5 APU: not less than 1,500 hours remaining to next shop visit.\n"
+              "6.6 Interior: cabin fully serviceable; no more than 5 percent of seat covers showing wear.\n"
+              "6.7 Paint: exterior in good condition with Lessee livery removed.\n"
+              "6.8 Technical Records: complete, in the English language, in hard copy and digital form.\n"
+              "6.9 Airworthiness Directives: all ADs with compliance dates on or before redelivery fully complied with.\n\n"
+              "7. INSURANCE\n"
+              "Hull All Risks agreed value: USD 32,000,000\n"
+              "Third Party Liability: USD 750,000,000 combined single limit\n\n"
+              "8. GOVERNING LAW\n"
+              "This Agreement is governed by English law.\n\n"
+              "NOTE: Fictional sample data shipped with the NeIO LeasingOps quickstart\n"
+              "for demonstration and smoke testing. Not a real lease agreement.\n"
           )
           print(f"[3/4] POST /api/v1/leasingops/workspaces/{workspace}/documents/upload")
           try:
               r = post_multipart(
                   f"/api/v1/leasingops/workspaces/{workspace}/documents/upload",
                   fields={},
-                  files={"file": ("smoke-test.txt", payload_text.encode(), "text/plain")},
+                  files={"file": ("LA-N67890-7203.txt", payload_text.encode(), "text/plain")},
                   headers=auth_h,
               )
               up = json.loads(r.read())
