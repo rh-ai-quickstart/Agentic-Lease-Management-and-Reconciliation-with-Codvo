@@ -102,7 +102,7 @@ api:
   # Validated API image (proprietary, pulled from ACR via the pull secret).
   image:
     repository: rhleasingopsacr.azurecr.io/leasingops-api
-    tag: "20260727.01.0001"
+    tag: "20260727.03.0001"
 
   # OpenShift Route configuration
   route:
