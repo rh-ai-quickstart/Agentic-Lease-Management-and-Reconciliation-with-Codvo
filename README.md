@@ -87,7 +87,7 @@ By the end of this quickstart, you will have:
 
 ### Architecture
 
-![NeIO LeasingOps architecture](docs/images/architecture.png)
+![Architecture diagram showing browser connecting to Next.js frontend, which proxies to FastAPI backend and LangGraph worker, with PostgreSQL and Redis for persistence, and vLLM serving Granite model through Llama Stack on OpenShift AI](docs/images/architecture.png)
 
 The browser talks only to the frontend. The frontend proxies API calls to the backend in-cluster, so no backend URL is baked into anything and one image set works on any cluster. For the detailed component design and the agent pipeline, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); for how the quickstart uses Red Hat OpenShift AI, see [docs/REDHAT_AI_INTEGRATION.md](docs/REDHAT_AI_INTEGRATION.md).
 
