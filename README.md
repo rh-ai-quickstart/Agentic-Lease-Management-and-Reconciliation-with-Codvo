@@ -159,7 +159,8 @@ That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the 
 
 - **CPU instead of GPU when no GPU is available** 
 
-If you have no GPU node, serve Granite on CPU by adding two flags to the install. Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
+If you have no GPU node, serve Granite on CPU by adding an additional values file that contains overrides for CPU-only inference to the install. 
+Inference is much slower (around 40 seconds per agent call), acceptable for a demo but not for load testing.
 
 ```bash
 helm install neio-leasingops ./leasingops/helm \
