@@ -34,7 +34,7 @@ app:
   # Validated application image (proprietary, pulled from ACR via the pull secret).
   image:
     repository: rhleasingopsacr.azurecr.io/leasingops-app
-    tag: "20260727.02.0001"
+    tag: "20260727.04.0001"
 
   # OpenShift Route configuration
   route:
