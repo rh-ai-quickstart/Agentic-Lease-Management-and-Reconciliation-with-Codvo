@@ -28,7 +28,7 @@ helm install neio-leasingops ./leasingops/helm \
 
 | Value | Purpose | Example |
 |-------|---------|---------|
-| `global.imagePullSecrets` | List of pull secrets for the private image registry | `[acr-pull-secret]` |
+| `global.imagePullSecrets` | Pull secrets for the workloads. Empty by default (the ACR images are public, anonymous pull); set only for a private or air-gapped mirror | `[]` |
 | `api.image.repository` / `api.image.tag` | API image | `rhleasingopsacr.azurecr.io/leasingops-api` / `20260615.01.0001` |
 | `app.image.repository` / `app.image.tag` | Frontend image | `.../leasingops-app` / `20260615.01.0001` |
 | `worker.image.repository` / `worker.image.tag` | Worker image | `.../leasingops-worker` / `20260615.01.0001` |

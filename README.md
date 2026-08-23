@@ -118,7 +118,8 @@ You do not need a Hugging Face token. The model, `ibm-granite/granite-3.3-2b-ins
 ### Required user permissions
 
 - `cluster-admin` on the cluster, or `admin` on the target namespace
-- ACR pull credentials for `rhleasingopsacr.azurecr.io`, used to pull the application images. Email `bala@codvo.ai` or `indranil@codvo.ai`; you will be sent a username and a password, which you pass to the install as `imageCredentials.username` / `imageCredentials.password`.
+
+No registry credentials are required. The application images on `rhleasingopsacr.azurecr.io` are public (anonymous pull), so the install pulls them without a secret.
 
 ## Deploy
 
@@ -135,13 +136,11 @@ cd Agentic-Lease-Management-and-Reconciliation-with-Codvo
 
 A single `helm install` brings up the whole quickstart: the model server (vLLM + LlamaStack, pulled in as chart dependencies), the application (frontend, API, worker), and its PostgreSQL and Redis. The chart generates its own database, cache, JWT, and demo-login credentials, registers the Granite model with LlamaStack, and lets OpenShift assign the route hostnames — so there is nothing to pre-create.
 
-Install with the bundled wrapper, passing the ACR pull credentials Codvo sent you (the application images are proprietary). It runs `helm dependency build` and `helm install --create-namespace` for you:
+Install with the bundled wrapper. It runs `helm dependency build` and `helm install --create-namespace` for you:
 
 ```bash
-make install NAMESPACE=leasingops ACR_USER='<USERNAME>' ACR_PASS='<PASSWORD>'
+make install NAMESPACE=leasingops
 ```
-
-Quote the credentials — ACR tokens contain characters the shell would otherwise expand.
 
 For manual Helm installation (no Make), the equivalent is:
 
@@ -150,12 +149,10 @@ helm dependency build ./leasingops/helm
 
 helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops --create-namespace \
-  --set imageCredentials.username='<USERNAME>' \
-  --set imageCredentials.password='<PASSWORD>' \
   -f leasingops/helm/values-openshift.yaml
 ```
 
-That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; the ACR pull secret; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
+That one command deploys: the `llm-service` (vLLM serving Granite 3.3 2B on the GPU) and `llama-stack` subcharts; the application and its PostgreSQL and Redis; the ServiceAccount and the SCC binding the images need on OpenShift; the auto-generated `neio-leasingops-secrets`; and a post-install Job that registers the model with LlamaStack. The Granite model downloads on the vLLM pod's first start, which takes a few minutes.
 
 - **CPU instead of GPU when no GPU is available** 
 
@@ -165,8 +162,6 @@ Inference is much slower (around 40 seconds per agent call), acceptable for a de
 ```bash
 helm install neio-leasingops ./leasingops/helm \
   --namespace leasingops --create-namespace \
-  --set imageCredentials.username='<USERNAME>' \
-  --set imageCredentials.password='<PASSWORD>' \
   -f leasingops/helm/values-openshift.yaml \
   -f leasingops/helm/values-leasingops-override.yaml
 ``` 

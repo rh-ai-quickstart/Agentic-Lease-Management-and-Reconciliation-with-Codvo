@@ -11,10 +11,12 @@ global:
   # Image pull secret for private registries
   pullSecret: ""
 
-  # Pull secret(s) attached to every workload, for the proprietary ACR images.
-  # Templated by imageCredentials below; override if you pre-create your own.
-  imagePullSecrets:
-    - acr-pull-secret
+  # Pull secret(s) attached to every workload. The application images on
+  # rhleasingopsacr.azurecr.io are PUBLIC (anonymous pull), so no pull secret is
+  # needed by default and this stays empty. For a private registry or air-gapped
+  # mirror, set imageCredentials.create=true (templates one) and add its name here,
+  # or list a pre-created secret name.
+  imagePullSecrets: []
 
   # Default container registry
   imageRegistry: quay.io/codvo-neio
@@ -146,15 +148,16 @@ secrets:
   data: {}
 
 # =============================================================================
-# IMAGE PULL SECRET — for the proprietary application images on ACR.
-# create: true templates the pull secret from username/password, so credentials
-# enter on the single install:
+# IMAGE PULL SECRET — optional. The application images on
+# rhleasingopsacr.azurecr.io are PUBLIC (anonymous pull), so a default install
+# needs NO credentials and this stays create: false.
+# Only for a private registry or air-gapped mirror: set create: true, pass
+#   --set imageCredentials.create=true \
 #   --set imageCredentials.username=<user> --set imageCredentials.password=<pass>
-# (RHDP can pass these as install parameters.) Set create: false if you pre-create
-# the pull secret out of band.
+# and add imageCredentials.name to global.imagePullSecrets.
 # =============================================================================
 imageCredentials:
-  create: true
+  create: false
   name: acr-pull-secret
   registry: rhleasingopsacr.azurecr.io
   username: ""

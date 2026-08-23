@@ -97,12 +97,17 @@ kubeseal --format yaml --cert sealed-secrets-cert.pem < secret.yaml > sealed-sec
 
 ## Registry pull secret
 
-The application images live in a private registry (ACR). Set
-`imageCredentials.create=true` and pass the credentials so the chart renders a
-`kubernetes.io/dockerconfigjson` pull secret in one `helm install`:
+The application images on `rhleasingopsacr.azurecr.io` are public (anonymous
+pull), so a default install needs no registry credentials and creates no pull
+secret (`imageCredentials.create=false`, `global.imagePullSecrets: []`).
+
+For a private registry or air-gapped mirror, set `imageCredentials.create=true`,
+pass the credentials, and add the secret name to `global.imagePullSecrets`, so the
+chart renders a `kubernetes.io/dockerconfigjson` pull secret in one `helm install`:
 
 ```bash
 helm install ... \
+  --set imageCredentials.create=true \
   --set imageCredentials.username=<acr-user> \
   --set imageCredentials.password=<acr-token>
 ```
