@@ -251,7 +251,7 @@ Documents flow through these in order:
 
 ### What you've accomplished
 
-You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model (the `llm-service` values), use external data services ([Appendix A](#appendix-b-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix B](#appendix-c-gitops)).
+You have deployed NeIO LeasingOps on OpenShift, served a Granite model through vLLM and LlamaStack on OpenShift AI, run aircraft lease PDFs through the ten-agent pipeline, and queried the results with a source-citing assistant. From here you can point the chart at a larger model (the `llm-service` values), use external data services ([Appendix A](#appendix-a-external-postgresql-or-redis)), or drive the install from GitOps ([Appendix B](#appendix-b-gitops)).
 
 ### Delete
 
