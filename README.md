@@ -321,8 +321,8 @@ Helm chart and deployment configuration: Apache 2.0.
 
 ## Tags
 
-- **Title:** Aircraft lease management and reconciliation with AI agents on Red Hat OpenShift AI
-- **Description:** Process aircraft lease documents on Red Hat OpenShift AI with a ten-agent workflow that extracts terms, maps obligations, calculates reserves, detects variance, assesses return readiness, and drafts return, extension, or buyout recommendations with traceable evidence.
+- **Title:** Automate Aircraft Lease Management with AI Agents.
+- **Description:** Process aircraft leases on Red Hat® OpenShift® AI: a 10-agent workflow extracts terms, maps obligations, calculates reserves, & drafts evidence-backed recommendations.
 - **Industry:** Adopt and scale AI
 - **Product:** OpenShift AI
 - **Use case:** Agentic document processing and reconciliation
