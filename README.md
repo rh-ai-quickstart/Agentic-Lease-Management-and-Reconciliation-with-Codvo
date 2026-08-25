@@ -1,4 +1,4 @@
-# Automate Aircraft Lease Management with AI Agents and Red Hat® OpenShift® AI
+# Automate Aircraft Lease Management with AI Agents.
 
 Process aircraft lease documents on Red Hat® OpenShift® AI with a ten-agent workflow that extracts terms, maps obligations, calculates reserves, detects variance, assesses return readiness, and drafts return, extension, or buyout recommendations with traceable evidence.
 
