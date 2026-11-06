@@ -326,4 +326,4 @@ Helm chart and deployment configuration: Apache 2.0.
 - **Industry:** Adopt and scale AI
 - **Product:** OpenShift AI
 - **Use case:** Agentic document processing and reconciliation
-- **Contributor org:** Codvo.ai
+- **Partner:** Codvo.ai
